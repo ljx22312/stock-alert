@@ -1,0 +1,8 @@
+# 运行时产物
+.venv/
+__pycache__/
+logs/
+charts/
+data/*.db
+data/*.pid
+*.log

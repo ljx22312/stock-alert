@@ -1,0 +1,32 @@
+{
+    "watchlist": [
+        {"symbol": "601169", "name": "北京银行"},
+        {"symbol": "000902", "name": "新洋丰"},
+        {"symbol": "002001", "name": "新和成"},
+        {"symbol": "601096", "name": "宏盛华源"},
+        {"symbol": "000552", "name": "甘肃能化"},
+        {"symbol": "600900", "name": "长江电力"},
+        {"symbol": "000958", "name": "电投产融"},
+        {"symbol": "002155", "name": "湖南黄金"},
+        {"symbol": "600916", "name": "中国黄金"},
+        {"symbol": "600801", "name": "华新建材"}
+    ],
+    "poll_interval_sec": 3,
+    "cooldown_minutes": 30,
+    "push_enabled": true,
+    "recipient": "all",
+    "wxpusher_config": "/home/admin/wechat-notify/config.json",
+    "db_path": "/home/admin/stock-alert/data/stock_alert.db",
+    "index_code": "sh000001",
+    "intraday_rules_enabled": ["zscore_dev", "vol_ratio", "gap", "limit_event"],
+    "index_rules_enabled": ["index_move"],
+    "daily_rules_enabled": ["ma_cross"],
+    "params": {
+        "zscore_dev": {"z_th": 2.0},
+        "vol_ratio": {"ratio_th": 4.0},
+        "gap": {"sigma_th": 0.5, "cooldown_minutes": 1200},
+        "index_move": {"threshold_pct": 0.5},
+        "limit_event": {"fallback_pct": 0.5, "cooldown_minutes": 1200},
+        "ma_cross": {"ma_window": 20}
+    }
+}
