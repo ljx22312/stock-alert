@@ -9,7 +9,8 @@
         {"symbol": "000958", "name": "电投产融"},
         {"symbol": "002155", "name": "湖南黄金"},
         {"symbol": "600916", "name": "中国黄金"},
-        {"symbol": "600801", "name": "华新建材"}
+        {"symbol": "600801", "name": "华新建材"},
+        {"symbol": "601857", "name": "中国石油"}
     ],
     "poll_interval_sec": 3,
     "cooldown_minutes": 30,
@@ -18,7 +19,7 @@
     "wxpusher_config": "/home/admin/wechat-notify/config.json",
     "db_path": "/home/admin/stock-alert/data/stock_alert.db",
     "index_code": "sh000001",
-    "intraday_rules_enabled": ["zscore_dev", "vol_ratio", "gap", "limit_event"],
+    "intraday_rules_enabled": ["zscore_dev", "vol_ratio", "gap", "limit_event", "fast_drop", "slow_drop"],
     "index_rules_enabled": ["index_move"],
     "daily_rules_enabled": ["ma_cross"],
     "params": {
@@ -27,6 +28,8 @@
         "gap": {"sigma_th": 0.5, "cooldown_minutes": 1200},
         "index_move": {"threshold_pct": 0.5},
         "limit_event": {"fallback_pct": 0.5, "cooldown_minutes": 1200},
+        "fast_drop": {"window_min": 30, "abs_th": 0.4, "pct_th": 1.5, "abs_switch": 15.0, "directions": ["up", "down"]},
+        "slow_drop": {"window_min": 120, "abs_th": 0.6, "pct_th": 2.5, "abs_switch": 15.0, "directions": ["up", "down"]},
         "ma_cross": {"ma_window": 20}
     }
 }

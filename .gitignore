@@ -6,3 +6,7 @@ charts/
 data/*.db
 data/*.pid
 *.log
+
+# 云端同步配置（含令牌）
+cloud/cloudbaserc.json
+cloud_sync.json

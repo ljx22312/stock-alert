@@ -6,7 +6,17 @@ PID_FILE="$PROJ_DIR/data/monitor.pid"
 LOG_FILE="$PROJ_DIR/logs/monitor.out"
 
 is_running() {
-    [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+        return 0
+    fi
+    # 兜底: pid 文件缺失/失效时按进程名查找并回写，防止重复拉起多实例
+    local p
+    p=$(pgrep -f "^/usr/bin/python3 run_monitor.py" | head -n 1)
+    if [ -n "$p" ]; then
+        echo "$p" > "$PID_FILE" 2>/dev/null || true
+        return 0
+    fi
+    return 1
 }
 
 start() {

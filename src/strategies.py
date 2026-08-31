@@ -157,6 +157,85 @@ def gap(ctx: RuleContext) -> str | None:
     return None
 
 
+def _window_drop(ctx: RuleContext, window_min: int,
+                 abs_th: float, pct_th: float, abs_switch: float,
+                 require_real_base: bool = False) -> str | None:
+    """滚动窗口涨跌：现价相对 window_min 分钟前价格变化超过阈值。
+
+    价格分层(按基准价与现价较高者判定)：
+      - 高价股(>= abs_switch 元)：用绝对金额 abs_th 元(如 15 元以上跌 0.4 元即报)，金额感直观
+      - 低价股：用百分比 pct_th%
+    directions 参数控制方向(["down"] 只报跌 / ["up","down"] 双向)。
+    require_real_base=True 时(慢窗口)：基准回退今开则静默，避免开盘段与快窗口重复报。
+    """
+    directions = [x for x in ctx.params.get("directions", ["down"]) if x in ("up", "down")]
+    if not directions or not ctx.intraday or not ctx.quote:
+        return None
+    now_ts, price, *_ = ctx.intraday[-1]
+    cur = ctx.quote.get("price") or price
+    if not cur:
+        return None
+    base = 0.0
+    win_sec = window_min * 60
+    for ts, px, *_ in reversed(ctx.intraday):
+        if ts <= now_ts - win_sec:
+            base = px
+            break
+    if base <= 0:  # 开盘初期：用今开做基准
+        if require_real_base:
+            return None
+        base = ctx.quote.get("open") or ctx.quote.get("prev_close") or 0.0
+    if base <= 0:
+        return None
+    delta_abs = cur - base          # 元
+    delta_pct = delta_abs / base * 100  # %
+    use_abs = max(base, cur) >= abs_switch
+    th, delta = (abs_th, delta_abs) if use_abs else (pct_th, delta_pct)
+    if abs(delta) < th:
+        return None
+    up = delta > 0
+    if up and "up" not in directions:
+        return None
+    if not up and "down" not in directions:
+        return None
+    pct_chg = ctx.quote.get("pct_chg")
+    if pct_chg is None:
+        pc = ctx.quote.get("prev_close")
+        pct_chg = (cur - pc) / pc * 100 if pc else 0.0
+    if window_min <= 60:
+        evt = "快速拉升" if up else "快速下挫"
+    else:
+        evt = "持续走强" if up else "持续走弱"
+    verb = "涨" if up else "跌"
+    if use_abs:
+        d = f"{verb} {abs(delta_abs):.2f}元({delta_pct:+.2f}%)"
+    else:
+        d = f"{verb} {abs(delta_pct):.2f}%"
+    return (f"【{evt}】{ctx.name}({ctx.symbol}) {window_min}分钟{d}，"
+            f"当日 {pct_chg:+.2f}%，现价 {cur:.2f}")
+
+
+def fast_drop(ctx: RuleContext) -> str | None:
+    """相对 30 分钟前快速变动。高价股(>=15元)按金额、低价股按百分比。
+
+    标定 16 交易日: 高价 abs 0.4元 -> 5.3次/周; 低价 pct 1.5% -> 6.9次/周(全池)。
+    """
+    p = {"abs_th": 0.4, "pct_th": 1.5, "abs_switch": 15.0, **ctx.params}
+    return _window_drop(ctx, int(p.get("window_min", 30)),
+                        float(p["abs_th"]), float(p["pct_th"]), float(p["abs_switch"]))
+
+
+def slow_drop(ctx: RuleContext) -> str | None:
+    """相对 2 小时前缓变走弱。高价股按金额(0.6元)、低价股按百分比(2.5%)。
+
+    标定 16 交易日: 高价 abs 0.6元 -> 3.4次/周; 低价 pct 2.5% -> 3.1次/周(全池)。
+    """
+    p = {"abs_th": 0.6, "pct_th": 2.5, "abs_switch": 15.0, **ctx.params}
+    return _window_drop(ctx, int(p.get("window_min", 120)),
+                        float(p["abs_th"]), float(p["pct_th"]), float(p["abs_switch"]),
+                        require_real_base=True)
+
+
 def limit_event(ctx: RuleContext) -> str | None:
     """封板/炸板/跌停/撬板。建议配 cooldown_minutes=1200（每天每向一次）。"""
     p = {"fallback_pct": 0.5, **ctx.params}
@@ -233,6 +312,8 @@ INTRADAY_RULES = {
     "vol_ratio": vol_ratio,
     "gap": gap,
     "limit_event": limit_event,
+    "fast_drop": fast_drop,
+    "slow_drop": slow_drop,
 }
 
 INDEX_RULES = {
