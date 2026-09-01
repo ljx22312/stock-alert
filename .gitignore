@@ -21,3 +21,9 @@ config.json
 # 本地测试/临时
 /tmp/
 web/dist/
+
+# AI agent 系统（worker.js / server.js）
+.env
+.env.local
+.pi-sessions/
+skill/**/__pycache__/

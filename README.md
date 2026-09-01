@@ -118,3 +118,33 @@ python3 run_daily.py
 - 15:45 交易日收盘后：`all`（日线 + 小时线 + 量基线 + 信号 + 快照/分时帧）
 - 9-11/13-15 点每 5 分钟：快照 + 分时帧推送
 - 每小时：信号增量
+
+## AI Agent 系统（网页 AI 助手 + 本机 pi coding agent）
+
+网页「AI 助手」入口（⚡快速 / 🤖Agent 两模式）的推理发生在本机，不在云端：
+
+```
+前端(匿名) --写--> 云端 ai_requests {mode, question, skill, status}
+本机 worker.js(API Key, 出站轮询) --取走--> 调模型 / spawn pi --写--> 云端 ai_replies
+前端 --轮询 ai_replies--> 流式拼字显示（含 thinking 思考中间推送，可随时停止）
+```
+
+- **⚡快速**：直接调模型 API（kimi/k3、oczen/deepseek-v4-flash…），附带 stock-data 工具查真实行情，便宜快。
+- **🤖Agent**：spawn `pi coding agent`（RPC 模式），按用户选择的专家 skill 载入 `skill/<skill-name>/SKILL.md`，以该领域专家身份工作；能自己写 Python 跑计算/回测。Agent 会话落在 `~/.pi/agent/sessions/<session_id>/`，本地终端 `pi --resume` 可找回网页产生的对话继续。
+
+### 相关文件
+
+| 文件 | 作用 |
+|---|---|
+| `worker.js` | 出站轮询 worker：读 ai_requests → 处理 → 写 ai_replies（SSE 流式解析、thinking 推送、stop 中止、agent 会话复用/回收） |
+| `server.js` | 可选：本地 HTTP shell（Bearer 鉴权 + SSE 透传），无需它也可由 worker.js 独立轮询工作 |
+| `extensions/providers.js` | pi 模型 provider 注册（kimi / oczen）+ `before_agent_start` 注入专家身份 |
+| `skill/` | 17 个 skill：15 个专家领域（估值、回测、因子挖掘、财报…）+ `stock-data`（行情工具）+ `web-search`（联网搜索） |
+| `.env.example` | 复制为 `.env` 填真实密钥（`.env` 不入库） |
+
+### 部署要点
+
+1. 安装 pi coding agent（`@mariozechner/pi-coding-agent`），模型密钥写入 `.env`：`KIMI_API_KEY` / `OPENCODE_API_KEY`，以及 CloudBase 管理 `CB_API_KEY`（worker 写入云端用）。
+2. 前端 `web/ai.js` 里的 `AI_ENV` / `AI_PKEY` 是 CloudBase publishable key（匿名 scope，设计上公开，仅用于前端初始化 SDK）。
+3. 云端函数只需 `api` + `ingest`（已有），AI 会话数据走 `ai_requests` / `ai_replies` 两个集合，无需额外部署。
+4. 可选 `SKILL_BASE` 环境变量指向自定义 skill 目录（默认仓库内 `./skill`）。
