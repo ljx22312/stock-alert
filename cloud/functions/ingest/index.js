@@ -4,6 +4,8 @@
  * 鉴权：请求头 x-sync-token（或 ?token=）必须等于函数环境变量 SYNC_TOKEN。
  * 写入：POST JSON { collection, docs: [...] }，按集合规则用固定 _id upsert：
  *   - daily_bars   _id = `${symbol}_${date}`
+ *   - hour_bars    _id = `${symbol}_${date}`（date 形如 202608311500）
+ *   - ticks        _id = `${symbol}_${date}`（盘中历史帧，date 形如 202609011030）
  *   - snapshots    _id = `${symbol}`（只保留最新快照，覆盖式）
  *   - stocks       _id = `${symbol}`
  *   - vol_profile  _id = `${symbol}_${hm}`
@@ -14,8 +16,14 @@ const cloudbase = require('@cloudbase/node-sdk')
 
 const app = cloudbase.init({ env: cloudbase.SYMBOL_CURRENT_ENV })
 const db = app.database()
+const _ = db.command
 
-const ALLOWED = new Set(['daily_bars', 'snapshots', 'stocks', 'signals', 'vol_profile'])
+const ALLOWED = new Set(['daily_bars', 'hour_bars', 'ticks', 'snapshots', 'stocks', 'signals', 'vol_profile', 'macro_indicators'])
+
+function expandCollection(name) {
+  // signals_<rule> → signals（按规则分集合）；其余原样（vol_profile 等含下划线的集合不受影响）
+  return name.startsWith('signals_') ? 'signals' : name
+}
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
@@ -23,14 +31,18 @@ const CORS = {
 }
 
 function makeId(collection, doc) {
-  switch (collection) {
+  switch (expandCollection(collection)) {
     case 'daily_bars':
+    case 'hour_bars':
+    case 'ticks':
       return `${doc.symbol}_${doc.date}`
     case 'snapshots':
     case 'stocks':
       return String(doc.symbol)
     case 'vol_profile':
       return `${doc.symbol}_${doc.hm}`
+    case 'macro_indicators':
+      return String(doc.id)
     case 'signals':
       return doc._id || `${doc.symbol}_${doc.rule}_${doc.ts}`
     default:
@@ -92,8 +104,17 @@ exports.main = async (event) => {
     try { body = JSON.parse(body) } catch (e) { /* 保持原样 */ }
   }
   const { collection, docs } = body || {}
-  if (!collection || !ALLOWED.has(collection)) {
-    return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: `collection must be one of ${[...ALLOWED].join(',')}` }) }
+  if (!collection || !ALLOWED.has(expandCollection(collection))) {
+    return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: `collection must be one of ${[...ALLOWED].join(',')}（signals_<rule> 映射到 signals）` }) }
+  }
+  // 维护操作：按 _id 批量删除（同样受 x-sync-token 保护）
+  if (body && body.action === 'delete') {
+    const ids = Array.isArray(body.ids) ? body.ids : []
+    if (!ids.length) {
+      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'ids required' }) }
+    }
+    const r = await db.collection(expandCollection(collection)).where({ _id: _.in(ids) }).remove()
+    return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, deleted: r.deleted || 0 }) }
   }
   if (!Array.isArray(docs) || docs.length === 0) {
     return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, upserted: 0 }) }

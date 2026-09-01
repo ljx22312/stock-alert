@@ -25,7 +25,8 @@ def to_market_code(symbol: str) -> str:
 def _parse_tencent(text: str) -> dict[str, dict]:
     """解析腾讯批量行情，按响应里的完整市场代码(sh600519)做键，避免与个股代码撞车。
     字段位置（~分隔）:
-    1=名称 2=代码 3=现价 4=昨收 5=今开 6=成交量(手) 30=时间戳 31=涨跌 32=涨跌% 33=最高 34=最低 37=成交额(万) 38=换手率
+    1=名称 2=代码 3=现价 4=昨收 5=今开 6=成交量(手) 30=时间戳 31=涨跌 32=涨跌% 33=最高 34=最低
+    37=成交额(万) 38=换手率 39=市盈率TTM 44=流通市值(亿) 45=总市值(亿) 51=均价
     """
     quotes = {}
     for seg in text.strip().split(";"):
@@ -36,6 +37,13 @@ def _parse_tencent(text: str) -> dict[str, dict]:
         parts = payload.strip().strip('"').split("~")
         if len(parts) < 39 or not parts[3]:
             continue
+
+        def _f(i, default=0.0):
+            try:
+                return float(parts[i]) if parts[i] else default
+            except (ValueError, IndexError):
+                return default
+
         try:
             quotes[code] = {
                 "symbol": parts[2],
@@ -47,8 +55,12 @@ def _parse_tencent(text: str) -> dict[str, dict]:
                 "high": float(parts[33]),
                 "low": float(parts[34]),
                 "pct_chg": float(parts[32]),
-                "amount_wan": float(parts[37]) if parts[37] else 0.0,
-                "turnover_rate": float(parts[38]) if parts[38] else 0.0,
+                "amount_wan": _f(37),
+                "turnover_rate": _f(38),
+                "pe_ttm": _f(39),           # 市盈率 TTM
+                "circ_mv": _f(44),          # 流通市值(亿)
+                "total_mv": _f(45),         # 总市值(亿)
+                "avg_price": _f(51),        # 当日均价
                 "quote_time": parts[30],  # '20260828161500'
             }
         except (ValueError, IndexError):

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>StockDesk 行情台</title>
+<link rel="stylesheet" href="./style.css">
+<link rel="stylesheet" href="./ai.css">
+</head>
+<body>
+<div id="content"><div class="empty">加载中…</div></div>
+
+<div id="detail">
+  <div id="d-head">
+    <span id="d-close">‹</span>
+    <div><span id="d-name"></span> <span id="d-sym"></span></div>
+    <span id="d-fav">☆ 加自选</span>
+  </div>
+  <div id="d-quote"></div>
+  <div id="ctype">
+    <button class="active" data-type="daily">日线</button>
+    <button data-type="hour">小时线</button>
+    <button data-type="week">周线</button>
+    <button data-type="month">月线</button>
+    <button data-type="tick">今日分时</button>
+  </div>
+  <div id="ranges-wrap">
+    <div id="ranges">
+      <button data-limit="60">3月</button>
+      <button data-limit="120">半年</button>
+      <button data-limit="250">1年</button>
+      <button data-limit="500">2年</button>
+      <button data-limit="1000">4年</button>
+    </div>
+    <span id="sig-toggle-wrap"><button id="sig-toggle">历史信号</button></span>
+  </div>
+  <div class="chart-help">
+    <span class="chip" data-help="kline">K线 ⓘ</span>
+    <span class="chip" data-help="redgreen">红涨绿跌 ⓘ</span>
+    <span class="chip" data-help="ma5">MA5 ⓘ</span>
+    <span class="chip" data-help="ma20">MA20 ⓘ</span>
+    <span class="chip" data-help="ma60">MA60 ⓘ</span>
+    <span class="chip" data-help="volbar">成交量柱 ⓘ</span>
+    <span class="chip" data-help="hour">小时线 ⓘ</span>
+    <span class="chip" data-help="week">周线 ⓘ</span>
+    <span class="chip" data-help="month">月线 ⓘ</span>
+    <span class="chip" data-help="tick">今日分时 ⓘ</span>
+    <span class="chip" data-help="avgline">均价线 ⓘ</span>
+  </div>
+  <div id="chart"></div>
+  <div class="sec-title">日内量能分布 <i class="help-ico" data-help="profile">ⓘ</i></div>
+  <div id="profile-chart"></div>
+</div>
+
+<div id="nav">
+  <span data-page="watch" class="active">自选<i class="help-ico" data-help="watch">ⓘ</i></span>
+  <span data-page="index">指数<i class="help-ico" data-help="index">ⓘ</i></span>
+  <span data-page="macro">宏观<i class="help-ico" data-help="macro">ⓘ</i></span>
+  <span data-page="signals">信号<i class="help-ico" data-help="signal">ⓘ</i></span>
+  <span data-page="me">我的<i class="help-ico" data-help="me">ⓘ</i></span>
+</div>
+
+<button id="ai-fab" title="AI 助手">AI</button>
+<button id="help-fab" title="新手帮助">?</button>
+
+<div id="help">
+  <div id="help-mask"></div>
+  <div id="help-panel">
+    <div id="help-head"><span id="help-title"></span><span id="help-close">✕</span></div>
+    <div class="help-sec"><div class="help-label">这是什么</div><div id="help-what"></div></div>
+    <div class="help-sec"><div class="help-label">什么时候看</div><div id="help-when"></div></div>
+    <div class="help-sec">
+      <div class="help-label">还想再问问 AI？复制下面这句话，发给任意 AI 助手（微信里的 DeepSeek、豆包等）</div>
+      <div id="help-prompt" class="help-prompt"></div>
+      <button id="help-copy">复制提示词</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="macro-detail">
+  <div id="md-head">
+    <span id="md-close">‹</span>
+    <span id="md-name"></span>
+    <span id="md-val"></span>
+  </div>
+  <div id="md-chart"></div>
+  <div id="md-note"></div>
+</div>
+
+<div id="ai">
+  <div id="ai-mask"></div>
+  <div id="ai-panel">
+    <div id="ai-head"><span id="ai-title">AI 助手</span><span id="ai-close">✕</span></div>
+    <div id="ai-modes">
+      <button id="ai-mode-fast" class="ai-mode">⚡ 快速</button>
+      <button id="ai-mode-agent" class="ai-mode">🤖 Agent</button>
+    </div>
+    <div id="ai-config">
+      <select id="ai-model"><option>kimi/k3</option><option>oczen/deepseek-v4-flash</option><option>oczen/deepseek-v4-flash-vision-exp</option></select>
+      <button id="ai-clear" title="清空对话（含 Agent 记忆）">🗑 新对话</button>
+    </div>
+    <div id="ai-config2">
+      <select id="ai-skill" title="Agent 模式可加载专家 skill">
+        <option value="">⚙ 不使用专家 skill</option>
+        <option value="cashflow-valuation">现金流估值 DCF</option>
+        <option value="commodity-research-outlook">大宗商品研究展望</option>
+        <option value="corr-insight">相关性分析</option>
+        <option value="equity-earnings-review">财报点评</option>
+        <option value="equity-research-report-cn">机构研报(中文)</option>
+        <option value="equity-researcher">机构级投研报告</option>
+        <option value="event-etf-study">事件 ETF 研究</option>
+        <option value="financial-report-reader">财报三表解读</option>
+        <option value="fund-risk-analyzer">ETF 多维对比</option>
+        <option value="quant-factor-mining">量化因子挖掘</option>
+        <option value="stock-finance-profiler">个股财务画像</option>
+        <option value="stock-research-report-cn">证券研报(国泰海通风)</option>
+        <option value="stock-tech-analysis">技术指标分析</option>
+        <option value="trading-strategy-backtest">策略回测</option>
+        <option value="value-invest-scorer">价值投资评估</option>
+      </select>
+    </div>
+    <div id="ai-msgs"></div>
+    <div id="ai-inputbar">
+      <textarea id="ai-input" rows="2" placeholder="问行情、查数据、算指标…"></textarea>
+      <button id="ai-send">发送</button>
+      <button id="ai-stop" title="停止当前生成，防止浪费 token" style="display:none">⏹ 停止</button>
+    </div>
+  </div>
+</div>
+
+<script src="./echarts.min.js"></script>
+<script src="./app.js?v=20260902b"></script>
+<script src="./ai.js?v=20260902a"></script>
+</body>
+</html>

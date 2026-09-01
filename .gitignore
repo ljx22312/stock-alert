@@ -7,6 +7,17 @@ data/*.db
 data/*.pid
 *.log
 
+# 原始下载数据（体积大，可重新下载；清单见 data/downloads/README.md）
+data/downloads/
+data/eastmoney_data/
+
 # 云端同步配置（含令牌）
 cloud/cloudbaserc.json
+cloudbaserc.json
 cloud_sync.json
+cloud_sync.state.json
+config.json
+
+# 本地测试/临时
+/tmp/
+web/dist/

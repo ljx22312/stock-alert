@@ -77,3 +77,44 @@ python3 run_daily.py
 - 交易时段判断只看"周一至五 + 时间"，法定节假日当天会空跑（拉到的行情日期
   不是今天，规则不会误触发，但进程不退出）。如需精确交易日历可后续加。
 - 推送依赖 WxPusher 免费额度，规则触发频率高时请加大冷却时间。
+
+---
+
+## 云端数据同步（CloudBase 方案 B）
+
+本地数据链路不变；新增 `sync_cloud.py` 把 SQLite 数据增量推送到 CloudBase
+云端数据库，供网页可视化与手机端浏览调用（提醒仍由本地监控负责，实时性不依赖云端）。
+
+### 命令
+
+| 命令 | 作用 |
+|---|---|
+| `python3 sync_cloud.py stocks` | 推送股池 + 指数目录（改 `config.json` 后手动跑一次） |
+| `python3 sync_cloud.py backfill [--symbols 601169,...]` | 一次性全历史日线回填（2015 起，腾讯窗口翻页） |
+| `python3 sync_cloud.py daily` | 收盘后增量日线同步（幂等 upsert） |
+| `python3 sync_cloud.py hours` | 60分钟线同步（腾讯 mkline，滚动窗口约 4 个月） |
+| `python3 sync_cloud.py snapshot` | 盘中最新快照推送（覆盖式）+ 分时历史帧 ticks |
+| `python3 sync_cloud.py signals` | 信号日志增量推送（水位在 `cloud_sync.state.json`） |
+| `python3 sync_cloud.py profile` | 日内量能分布（同时段 5 分钟均量基线） |
+| `python3 sync_cloud.py all` | stocks + daily + hours + signals + snapshot + profile 一次跑完 |
+
+### 配置
+
+- `cloud_sync.json`（不入库）：`{"url": "https://<env>.service.tcloudbase.com/ingest", "token": "..."}`
+- 云端写入入口 `ingest`（令牌校验）、只读接口 `api`：
+  - `GET /api/quote?symbols=601169,sh000300` 最新快照
+  - `GET /api/daily?symbol=601169&limit=250` 历史日线
+  - `GET /api/hour?symbol=601169&limit=320` 60分钟线（升序，最新在后）
+  - `GET /api/tick?symbol=601169` 当日分时帧（无则回退最近交易日）
+  - `GET /api/profile?symbol=601169` 日内量能分布（48 个 5 分钟时段的均量）
+  - `GET /api/stocks?type=stock|index` 股池/指数目录
+  - `GET /api/signals?limit=50` 最近信号
+  - `GET /api/stats` 各集合文档数
+- 函数代码在 `cloud/functions/`，部署：`cd cloud && tcb fn deploy ingest --path /ingest` / `tcb fn deploy api --path /api`
+- 指数目录在 `sync_cloud.py` 的 `INDICES` 常量里维护。
+
+### crontab（已配置）
+
+- 15:45 交易日收盘后：`all`（日线 + 小时线 + 量基线 + 信号 + 快照/分时帧）
+- 9-11/13-15 点每 5 分钟：快照 + 分时帧推送
+- 每小时：信号增量

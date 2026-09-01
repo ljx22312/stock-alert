@@ -1,0 +1,169 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { font-size: 15px; }
+body {
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  background: #14171c; color: #d8dce3;
+  max-width: 720px; margin: 0 auto; min-height: 100vh;
+  padding-bottom: 60px;
+}
+.up { color: #e05555; } .down { color: #3fbf7f; } .flat { color: #8a8f98; }
+
+#content { padding: 10px 12px; }
+.tabs { display: flex; gap: 18px; padding: 6px 2px 12px; position: sticky; top: 0; background: #14171c; z-index: 5; }
+.tab { font-size: 15px; color: #8a8f98; cursor: pointer; padding-bottom: 4px; }
+.tab.active { color: #d8dce3; font-weight: 600; border-bottom: 2px solid #4d8fd1; }
+
+.card {
+  display: grid; grid-template-columns: 1fr 80px 80px;
+  align-items: center; padding: 12px 14px; margin-bottom: 8px;
+  background: #1b1f26; border: 1px solid #262c36; border-radius: 10px; cursor: pointer;
+}
+.card:active { background: #222834; }
+.name { font-size: 15px; font-weight: 500; }
+.sub { font-size: 12px; color: #8a8f98; margin-top: 2px; }
+.num { text-align: right; font-variant-numeric: tabular-nums; font-size: 15px; }
+.empty { color: #8a8f98; text-align: center; padding: 40px 0; font-size: 14px; }
+
+.sig { padding: 12px 14px; margin-bottom: 8px; background: #1b1f26; border: 1px solid #262c36; border-radius: 10px; cursor: pointer; }
+.sig:active { background: #222834; }
+.sig-meta { font-size: 12px; color: #8a8f98; margin-bottom: 5px; }
+.sig-msg { font-size: 14px; line-height: 1.5; }
+
+.sec-title { font-size: 13px; color: #8a8f98; margin: 14px 2px 8px; }
+.fav-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #262c36; }
+.fav-row:last-child { border-bottom: none; }
+.fav-rm { color: #e05555; font-size: 13px; cursor: pointer; }
+
+#detail {
+  position: fixed; inset: 0; background: #14171c; z-index: 50;
+  overflow-y: auto; padding: 12px; display: none; max-width: 720px; margin: 0 auto;
+}
+#d-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+#d-close { font-size: 20px; color: #8a8f98; cursor: pointer; padding: 4px 8px; }
+#d-name { font-size: 18px; font-weight: 600; }
+#d-sym { font-size: 13px; color: #8a8f98; }
+#d-fav { margin-left: auto; font-size: 14px; cursor: pointer; padding: 6px 10px; border: 1px solid #262c36; border-radius: 8px; }
+
+#d-quote { margin: 8px 0 4px; }
+.q-price { font-size: 26px; font-weight: 600; margin-bottom: 8px; }
+.q-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.q-item { background: #1b1f26; border-radius: 8px; padding: 7px 8px; }
+.q-item span { display: block; color: #8a8f98; font-size: 11px; margin-bottom: 2px; }
+
+#ranges-wrap { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
+#ranges-wrap #ranges { margin: 0; flex: 1; }
+#sig-toggle {
+  background: #1b1f26; color: #8a8f98; border: 1px solid #262c36;
+  border-radius: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+#sig-toggle.on { color: #d8dce3; border-color: #e05555; background: #2a1d1d; }
+#ranges button {
+  background: #1b1f26; color: #8a8f98; border: 1px solid #262c36;
+  border-radius: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer;
+}
+#ranges button.active { color: #d8dce3; border-color: #4d8fd1; }
+#chart { height: 420px; background: #1b1f26; border: 1px solid #262c36; border-radius: 10px; position: relative; }
+#profile-chart { height: 170px; background: #1b1f26; border: 1px solid #262c36; border-radius: 10px; }
+
+/* 信号详情浮层（点红色三角弹出） */
+#sig-tip {
+  display: none; position: sticky; top: 8px; z-index: 20; margin: 8px 0;
+  background: #2a1d1d; border: 1px solid #e05555; border-radius: 10px;
+  padding: 12px 40px 12px 14px; font-size: 14px; line-height: 1.6; color: #f0d8d8;
+  box-shadow: 0 4px 16px rgba(0,0,0,.5);
+}
+.sig-tip-msg { word-break: break-all; }
+.sig-tip-x {
+  position: absolute; top: 8px; right: 10px; color: #e05555;
+  font-size: 16px; cursor: pointer; padding: 2px 6px;
+}
+
+#ctype { display: flex; gap: 8px; margin: 10px 0 0; }
+#ctype button {
+  background: #1b1f26; color: #8a8f98; border: 1px solid #262c36;
+  border-radius: 8px; padding: 6px 14px; font-size: 14px; cursor: pointer;
+}
+#ctype button.active { color: #d8dce3; border-color: #4d8fd1; background: #222b3a; }
+
+#nav {
+  position: fixed; bottom: 0; left: 0; right: 0; max-width: 720px; margin: 0 auto;
+  display: flex; background: #1b1f26; border-top: 1px solid #262c36; z-index: 40;
+}
+#nav span { flex: 1; text-align: center; padding: 12px 0 14px; font-size: 13px; color: #8a8f98; cursor: pointer; }
+#nav span.active { color: #4d8fd1; font-weight: 600; }
+#nav .help-ico { font-size: 11px; color: #5a6270; margin-left: 2px; }
+
+/* ---------- 新手帮助 ---------- */
+.help-ico { font-style: normal; font-size: 13px; color: #4d8fd1; cursor: pointer; padding: 0 2px; user-select: none; }
+.help-ico:active { color: #6aa4e8; }
+
+.chart-help { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.chip {
+  font-size: 12px; color: #8a8f98; background: #1b1f26;
+  border: 1px solid #262c36; border-radius: 14px; padding: 5px 11px; cursor: pointer; user-select: none;
+}
+.chip:active { background: #222834; }
+
+#help-fab {
+  position: fixed; right: 14px; bottom: 74px; width: 42px; height: 42px;
+  border-radius: 50%; background: #222834; border: 1px solid #4d8fd1;
+  color: #4d8fd1; font-size: 20px; line-height: 1; z-index: 30; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,.4);
+}
+#help-fab:active { background: #2a3140; }
+
+#help { position: fixed; inset: 0; z-index: 60; display: none; }
+#help.show { display: block; }
+#help-mask { position: absolute; inset: 0; background: rgba(0,0,0,.55); animation: helpFade .2s; }
+#help-panel {
+  position: absolute; left: 0; right: 0; bottom: 0; max-width: 720px; margin: 0 auto;
+  max-height: 72vh; overflow-y: auto; background: #1b1f26;
+  border-radius: 14px 14px 0 0; padding: 14px 16px calc(20px + env(safe-area-inset-bottom));
+  animation: helpUp .22s ease-out;
+}
+@keyframes helpFade { from { opacity: 0; } }
+@keyframes helpUp { from { transform: translateY(40px); opacity: .4; } }
+
+#help-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+#help-title { font-size: 18px; font-weight: 600; }
+#help-close { font-size: 18px; color: #8a8f98; cursor: pointer; padding: 4px 8px; }
+.help-sec { margin-bottom: 14px; }
+.help-label { font-size: 13px; color: #8a8f98; margin-bottom: 6px; }
+#help-what, #help-when { font-size: 16px; line-height: 1.7; }
+.help-prompt {
+  font-size: 14px; line-height: 1.6; color: #b7bcc6; user-select: text;
+  background: #14171c; border: 1px solid #262c36; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px;
+}
+#help-copy {
+  width: 100%; padding: 13px; font-size: 16px; font-weight: 500;
+  background: #4d8fd1; color: #fff; border: none; border-radius: 10px; cursor: pointer;
+}
+#help-copy:active { background: #3f7cba; }
+
+/* ---------- 宏观指标页 ---------- */
+.macro-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 6px; }
+.mcard {
+  background: #1b1f26; border: 1px solid #262c36; border-radius: 10px;
+  padding: 10px 12px; cursor: pointer;
+}
+.mcard:active { background: #222834; }
+.mname { font-size: 13px; color: #8a8f98; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mval { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.munit { font-size: 11px; color: #8a8f98; font-weight: 400; margin-left: 3px; }
+.mrow { display: flex; justify-content: space-between; align-items: center; margin-top: 3px; }
+.mchg { font-size: 12px; font-variant-numeric: tabular-nums; }
+.mdate { font-size: 11px; color: #5a6270; }
+.mspark { height: 46px; margin-top: 4px; }
+
+#macro-detail {
+  position: fixed; inset: 0; background: #14171c; z-index: 55;
+  overflow-y: auto; padding: 14px 14px calc(20px + env(safe-area-inset-bottom));
+  display: none; max-width: 720px; margin: 0 auto;
+}
+#md-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+#md-close { font-size: 22px; color: #8a8f98; cursor: pointer; padding: 2px 8px; }
+#md-name { font-size: 18px; font-weight: 600; }
+#md-val { margin-left: auto; text-align: right; }
+.md-num { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+#md-chart { width: 100%; background: #1b1f26; border: 1px solid #262c36; border-radius: 10px; }
+#md-note { font-size: 12px; color: #5a6270; margin-top: 10px; line-height: 1.6; }
