@@ -58,12 +58,15 @@ def _five_min_grid(intraday: list[tuple]) -> list[tuple[int, float, float]]:
     """把 3 秒轨迹抽稀到 5 分钟网格（每格取最后一个样本）。
 
     返回 [(grid_ts, price, cum_vol), ...] 按时间升序。
+    grid_ts 必须是整 5 分钟对齐的桶时间而非真实采样时间：
+    vol_ratio 要拿它去查量基线表（键只有 09:35/09:40 这类刻度），
+    且只有对齐后相邻桶的累计量差才等于完整 5 分钟成交量。
     """
     grid: dict[int, tuple[int, float, float]] = {}
     for row in intraday:
         ts = row[0]
         g = ts - ts % 300
-        grid[g] = (row[0], row[1], row[2] if len(row) > 2 else 0.0)
+        grid[g] = (g, row[1], row[2] if len(row) > 2 else 0.0)
     return [grid[g] for g in sorted(grid)]
 
 
@@ -119,7 +122,9 @@ def vol_ratio(ctx: RuleContext) -> str | None:
     if bucket_vol <= 0:
         return None
     import time as _time
-    hm = _time.strftime("%H:%M", _time.localtime(ts))
+    # 量基线键是 5 分钟桶的"桶尾"时刻（tencent m5 K线以桶尾标记，如 14:10 = [14:05,14:10)），
+    # 而 ts 是桶起点，故 +300 对齐到本槽位的基线刻度
+    hm = _time.strftime("%H:%M", _time.localtime(ts + 300))
     base = ctx.vol_profile.get(hm)
     if not base or base <= 0:
         return None
@@ -181,8 +186,15 @@ def _window_drop(ctx: RuleContext, window_min: int,
         if ts <= now_ts - win_sec:
             base = px
             break
-    if base <= 0:  # 开盘初期：用今开做基准
-        if require_real_base:
+    if base <= 0:  # 盘中历史不足窗口：仅在"刚开盘"允许回退今开
+        # 盘中重启后（如 13:22 拉起）轨迹同样是空的，但此时"相对今开"的涨跌
+        # 并非 window_min 内的真实变动，报"30分钟跌X%"会误导且占用冷却；
+        # 只有进程从开盘/午盘起点附近开始采样（首条轨迹贴近 09:30/13:00）才回退。
+        import time as _time
+        lt = _time.localtime(ctx.intraday[0][0])
+        hm0 = lt.tm_hour * 60 + lt.tm_min
+        near_session_open = (9 * 60 + 30 <= hm0 <= 9 * 60 + 45) or (13 * 60 <= hm0 <= 13 * 60 + 10)
+        if require_real_base or not near_session_open:
             return None
         base = ctx.quote.get("open") or ctx.quote.get("prev_close") or 0.0
     if base <= 0:

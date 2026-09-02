@@ -676,7 +676,7 @@ async function boot() {
     } else if (store.page === 'watch' || store.page === 'index') {
       pages[store.page]();
     }
-  }, 30000);
+  }, 60000);
 }
 function loadChartHeaderOnly() {
   const q = snap(store.detail);

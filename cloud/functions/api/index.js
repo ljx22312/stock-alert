@@ -18,6 +18,45 @@ const app = cloudbase.init({ env: cloudbase.SYMBOL_CURRENT_ENV })
 const db = app.database()
 const _ = db.command
 
+// 简易 TTL 缓存：云函数实例内按路由+参数缓存查询结果。
+// 数据更新节奏远慢于页面轮询（快照 5 分钟、日线/宏观日更），
+// 多页面/多标签的轮询共享一份结果，可把数据库读取量降到原 1/N。
+const CACHE = new Map()
+const CACHE_TTL = {
+  '/quote': 30 * 1000,    // 快照每 5 分钟才更新，30s 缓存不影响体验
+  '/tick': 30 * 1000,     // 分时帧 5 分钟一帧
+  '/daily': 300 * 1000,   // 日线收盘后更新
+  '/hour': 300 * 1000,
+  '/signals': 15 * 1000,  // 信号较实时，但秒级新鲜度无意义
+  '/stocks': 300 * 1000,  // 目录几乎不变
+  '/profile': 300 * 1000,
+  '/macro': 300 * 1000,   // 日更
+  '/stats': 300 * 1000,
+}
+function cacheKey(p, query) {
+  const q = Object.keys(query).filter((k) => query[k] !== undefined && query[k] !== '')
+    .sort().map((k) => `${k}=${query[k]}`).join('&')
+  return p + (q ? '?' + q : '')
+}
+async function cached(p, query, fn) {
+  const key = cacheKey(p, query)
+  const hit = CACHE.get(key)
+  const ttl = CACHE_TTL[p] || 0
+  if (hit && Date.now() - hit.ts < ttl) return hit.data
+  const data = await fn()
+  if (data && data.statusCode) return data  // 参数错误等非业务响应：不缓存，原样返回
+  CACHE.set(key, { ts: Date.now(), data })
+  if (CACHE.size > 200) {  // 防内存无限增长
+    for (const [k, v] of CACHE) if (Date.now() - v.ts > 600 * 1000) CACHE.delete(k)
+  }
+  return data
+}
+// 业务响应用 json 包装；错误响应（带 statusCode）原样透出
+async function route(p, query, fn) {
+  const out = await cached(p, query, fn)
+  return out && out.statusCode ? out : json(out)
+}
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
@@ -160,23 +199,23 @@ exports.main = async (event) => {
     case '/health':
       return json({ ok: true, ts: Date.now() })
     case '/quote':
-      return json(await quote(query))
+      return json(await cached('/quote', query, () => quote(query)))
     case '/daily':
-      return daily(query)
+      return route('/daily', query, () => daily(query))
     case '/stocks':
-      return json(await stocks(query))
+      return json(await cached('/stocks', query, () => stocks(query)))
     case '/signals':
-      return json(await signals(query))
+      return json(await cached('/signals', query, () => signals(query)))
     case '/stats':
-      return json(await stats())
+      return json(await cached('/stats', query, () => stats()))
     case '/hour':
-      return hour(query)
+      return route('/hour', query, () => hour(query))
     case '/tick':
-      return json(await tick(query))
+      return json(await cached('/tick', query, () => tick(query)))
     case '/profile':
-      return json(await profile(query))
+      return json(await cached('/profile', query, () => profile(query)))
     case '/macro':
-      return json(await macro(query))
+      return json(await cached('/macro', query, () => macro(query)))
     default:
       return err(404, `not found (path=${p})`)
   }

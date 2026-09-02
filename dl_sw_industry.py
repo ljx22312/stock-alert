@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """下载申万一级行业指数日线全历史（31 个）→ data/downloads/sw_industry/*.csv
-数据源：乐咕乐股（akshare index_hist_sw）。断点续传（已存在的跳过）。
+数据源：乐咕乐股（akshare index_hist_sw）。
+
+首次：全量下载；之后每日更新：拉全量后若尾部日期比本地新则覆盖重写（保持每日最新）。
 用法：python3 dl_sw_industry.py
 """
+import csv
 import sys
 import time
 from pathlib import Path
@@ -24,20 +27,28 @@ LEVEL1 = {  # 申万一级行业（2021 版 31 个）
 }
 
 def main():
-    ok, fail = 0, []
+    ok, fail, updated = 0, [], 0
     for code, name in LEVEL1.items():
         f = OUT / f"{code}_{name}.csv"
-        if f.exists() and f.stat().st_size > 1000:
-            print(f"跳过 {code} {name}（已存在）")
-            ok += 1
-            continue
+        last_local = ""
+        if f.exists():
+            with open(f, encoding="utf-8-sig") as fh:
+                rows = list(csv.DictReader(fh))
+            if rows:
+                last_local = rows[-1]["日期"]
         for attempt in range(4):
             try:
                 df = ak.index_hist_sw(symbol=code, period="day")
                 if df is None or df.empty:
                     raise RuntimeError("空数据")
-                df.to_csv(f, index=False, encoding="utf-8-sig")
-                print(f"✅ {code} {name}: {len(df)} 根 ({df['日期'].iloc[0]} ~ {df['日期'].iloc[-1]})")
+                latest = str(df["日期"].iloc[-1])
+                if latest > last_local:
+                    df.to_csv(f, index=False, encoding="utf-8-sig")
+                    print(f"✅ {code} {name}: {len(df)} 根 ({df['日期'].iloc[0]} ~ {latest})"
+                          + (f"，新增至 {latest}" if last_local else ""))
+                    updated += 1
+                else:
+                    print(f"· {code} {name} 已是最新（{latest}），跳过")
                 ok += 1
                 break
             except Exception as e:
@@ -46,7 +57,7 @@ def main():
         else:
             fail.append(code)
         time.sleep(1.0)  # 限流保护
-    print(f"\n完成: {ok}/31 成功, 失败 {fail}")
+    print(f"\n完成: {ok}/31 成功, 更新 {updated} 个, 失败 {fail}")
 
 if __name__ == "__main__":
     main()

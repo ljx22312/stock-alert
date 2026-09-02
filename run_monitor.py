@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import signal
 import sys
 import time
 from datetime import datetime
@@ -60,6 +61,10 @@ class Engine:
         # 盘中价格轨迹: {symbol: [(ts, price, cum_volume_hand), ...]}
         self.intraday: dict[str, list[tuple]] = {s: [] for s in self.symbols}
         self.index_intraday: list[tuple] = []
+        # 轨迹落盘：每 5 分钟增量追加到 data/intraday/<YYYYMMDD>/<代码>.csv
+        self.flush_dir = BASE_DIR / "data" / "intraday"
+        self.flushed_ts: dict[str, float] = {}
+        self.last_flush = 0.0
         self.today = datetime.now().strftime("%Y%m%d")
         self.rules = [(n, INTRADAY_RULES[n]) for n in config["intraday_rules_enabled"]
                       if n in INTRADAY_RULES]
@@ -81,13 +86,40 @@ class Engine:
                 self.daily[s] = []
                 self.vol_profiles[s] = {}
 
+    def _flush_intraday(self):
+        """把内存中未落盘的轨迹增量追加写入 CSV，失败不影响主流程。"""
+        try:
+            day_dir = self.flush_dir / self.today
+            targets = list(self.intraday.items())
+            if self.index_code:
+                targets.append((self.index_code, self.index_intraday))
+            for sym, hist in targets:
+                last = self.flushed_ts.get(sym, 0)
+                rows = [r for r in hist if r[0] > last]
+                if not rows:
+                    continue
+                day_dir.mkdir(parents=True, exist_ok=True)
+                path = day_dir / f"{sym}.csv"
+                new = not path.exists()
+                with open(path, "a", encoding="utf-8") as f:
+                    if new:
+                        f.write("ts,price,cum_volume_hand\n")
+                    for r in rows:
+                        vol = r[2] if len(r) > 2 else ""
+                        f.write(f"{r[0]},{r[1]},{vol}\n")
+                self.flushed_ts[sym] = rows[-1][0]
+        except Exception as e:
+            log.warning("轨迹落盘失败: %s", e)
+
     def _roll_day(self):
-        """跨天时清空盘中轨迹并重载静态数据。"""
+        """跨天时先把前一日轨迹落盘，再清空盘中轨迹并重载静态数据。"""
         today = datetime.now().strftime("%Y%m%d")
         if today != self.today:
+            self._flush_intraday()
             self.today = today
             self.intraday = {s: [] for s in self.symbols}
             self.index_intraday = []
+            self.flushed_ts = {}
             self._load_static()
             log.info("新的一天，清空盘中轨迹并重载静态数据")
 
@@ -163,22 +195,30 @@ class Engine:
                  len(self.symbols), interval, self.cfg["intraday_rules_enabled"],
                  self.cfg.get("index_rules_enabled", []),
                  "关闭(dry-run)" if self.dry_run else "开启")
-        while True:
-            self._roll_day()
-            if not is_trading_now():
-                time.sleep(60)
-                continue
-            try:
-                self.run_cycle()
-                self.fail_streak = 0
-                time.sleep(interval)
-            except Exception as e:
-                self.fail_streak += 1
-                backoff = 10 if self.fail_streak < 3 else 60
-                log.warning("第 %d 次连续失败: %s，%ds 后重试", self.fail_streak, e, backoff)
-                time.sleep(backoff)
-                if self.fail_streak == 5 and self.notifier:
-                    self.notifier.send("【告警】行情监控连续失败 5 次，请检查网络或数据源")
+        # SIGTERM 转成 SystemExit，保证退出前执行 finally 里的落盘
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+        try:
+            while True:
+                self._roll_day()
+                if not is_trading_now():
+                    time.sleep(60)
+                    continue
+                try:
+                    self.run_cycle()
+                    self.fail_streak = 0
+                    if time.time() - self.last_flush >= 300:
+                        self._flush_intraday()
+                        self.last_flush = time.time()
+                    time.sleep(interval)
+                except Exception as e:
+                    self.fail_streak += 1
+                    backoff = 10 if self.fail_streak < 3 else 60
+                    log.warning("第 %d 次连续失败: %s，%ds 后重试", self.fail_streak, e, backoff)
+                    time.sleep(backoff)
+                    if self.fail_streak == 5 and self.notifier:
+                        self.notifier.send("【告警】行情监控连续失败 5 次，请检查网络或数据源")
+        finally:
+            self._flush_intraday()
 
 
 def main():

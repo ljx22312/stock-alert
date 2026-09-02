@@ -27,3 +27,7 @@ web/dist/
 .env.local
 .pi-sessions/
 skill/**/__pycache__/
+
+# 每日归档（构建/运行时产物，115机生成）
+data/daily_archive/
+data/intraday/

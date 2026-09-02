@@ -156,33 +156,52 @@ function pollReply() {
   if (!ai.activeReq) return;
   if (ai.activeTimer) clearInterval(ai.activeTimer);
   const box = document.getElementById('ai-msgs');
-  ai.activeTimer = setInterval(async () => {
-    try {
-      const q = encodeURIComponent(JSON.stringify({ request_id: ai.activeReq }));
-      const j = await aiDb(`/collections/ai_replies/documents?query=${q}&limit=1`);
-      const rep = j.list && j.list[0];
-      if (!rep) return; // 还没被处理
-      const idx = ai.msgs.findIndex(m => m.pending);
-      if (idx >= 0) {
-        ai.msgs[idx].text = rep.text || '';
-        ai.msgs[idx].thinking = rep.thinking || '';
-        ai.msgs[idx].pending = !rep.done;
-        // 替换当前节点
-        const node = box.children[idx];
-        if (node) node.outerHTML = msgEl(ai.msgs[idx]).outerHTML;
-        box.scrollTop = box.scrollHeight;
+  let tries = 0;
+  const started = Date.now();
+  const MAX_TRIES = 150;          // 4s 间隔约 10 分钟，防 agent 掉线后无限空轮询
+  const tick = async () => {
+    if (!document.hidden) {
+      try {
+        const q = encodeURIComponent(JSON.stringify({ request_id: ai.activeReq }));
+        const j = await aiDb(`/collections/ai_replies/documents?query=${q}&limit=1`);
+        const rep = j.list && j.list[0];
+        if (rep) {
+          const idx = ai.msgs.findIndex(m => m.pending);
+          if (idx >= 0) {
+            ai.msgs[idx].text = rep.text || '';
+            ai.msgs[idx].thinking = rep.thinking || '';
+            ai.msgs[idx].pending = !rep.done;
+            // 替换当前节点
+            const node = box.children[idx];
+            if (node) node.outerHTML = msgEl(ai.msgs[idx]).outerHTML;
+            box.scrollTop = box.scrollHeight;
+          }
+          if (rep.done) {
+            clearInterval(ai.activeTimer);
+            ai.activeTimer = null;
+            ai.activeReq = null;
+            setBusy(false);
+            renderAi();
+            return;
+          }
+        }
+      } catch (e) {
+        // 网络抖动忽略，下次轮询重试
       }
-      if (rep.done) {
-        clearInterval(ai.activeTimer);
-        ai.activeTimer = null;
-        ai.activeReq = null;
-        setBusy(false);
-        renderAi();
-      }
-    } catch (e) {
-      // 网络抖动忽略，下次轮询重试
     }
-  }, 2000);
+    tries += 1;
+    if (tries >= MAX_TRIES || Date.now() - started > 15 * 60 * 1000) {
+      // 回复丢失/agent 掉线时停止空转，避免每 2 秒一次的无效读取持续一整天
+      clearInterval(ai.activeTimer);
+      ai.activeTimer = null;
+      const idx = ai.msgs.findIndex(m => m.pending);
+      if (idx >= 0) ai.msgs[idx].pending = false;
+      setBusy(false);
+      aiToast('回复超时，可重发消息继续对话', true);
+      renderAi();
+    }
+  };
+  ai.activeTimer = setInterval(tick, 4000);
 }
 
 async function clearChat() {

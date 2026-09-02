@@ -19,7 +19,7 @@ import requests
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from sync_cloud import push, load_cfg  # noqa: E402
+from sync_cloud import push, load_cfg, load_meta, save_meta, cloud_rows  # noqa: E402
 
 SW_DIR = HERE / "data" / "downloads" / "sw_industry"
 
@@ -36,7 +36,12 @@ LEVEL1 = {  # 申万一级行业（2021 版 31 个）
 
 
 def sync_daily(cfg) -> int:
-    """读 31 个 CSV → daily_bars（id=symbol_date，幂等 upsert）。"""
+    """读 31 个 CSV → daily_bars，增量推送（id=symbol_date，幂等 upsert）。
+
+    行业 CSV 为全历史（6400+ 根），此前每天全量重推 ≈ 20 万次写。
+    现在按水位只推新增日期：首次从云端读回最新日期建水位，之后每天仅 ~31 行。
+    """
+    meta = load_meta("industry_meta.json")
     total = 0
     for code, name in LEVEL1.items():
         f = SW_DIR / f"{code}_{name}.csv"
@@ -58,9 +63,19 @@ def sync_daily(cfg) -> int:
                     continue
         if not docs:
             continue
-        n = push("daily_bars", docs, cfg)
-        total += n
-        print(f"daily: {code} {name} -> {n} 根 ({docs[0]['date']} ~ {docs[-1]['date']})")
+        if code not in meta:
+            cloud = cloud_rows("daily", code)
+            meta[code] = cloud[-1]["date"] if cloud else ""
+        last = meta[code]
+        new = [d for d in docs if d["date"] > last]
+        if new:
+            n = push("daily_bars", new, cfg)
+            total += n
+            print(f"daily: {code} {name} -> {n} 根增量（截至 {new[-1]['date']}）")
+        else:
+            print(f"daily: {code} {name} 无新 bar（水位 {last}），跳过")
+        meta[code] = docs[-1]["date"]
+        save_meta("industry_meta.json", meta)
     return total
 
 
