@@ -62,6 +62,11 @@ WEB_ONLY = [
     {"symbol": "600519", "name": "贵州茅台", "type": "stock"},
     {"symbol": "601318", "name": "中国平安", "type": "stock"},
     {"symbol": "601899", "name": "紫金矿业", "type": "stock"},
+    {"symbol": "600798", "name": "宁波海运", "type": "stock"},
+    {"symbol": "000039", "name": "中集集团", "type": "stock"},
+    {"symbol": "600863", "name": "华能蒙电", "type": "stock"},
+    {"symbol": "002782", "name": "可立克", "type": "stock"},
+    {"symbol": "600585", "name": "海螺水泥", "type": "stock"},
 ]
 
 BATCH = 200  # 单次推送最大文档数
@@ -96,6 +101,37 @@ def req_code(symbol: str) -> str:
     if symbol[:2] in ("sh", "sz"):
         return symbol
     return to_market_code(symbol)
+
+
+# 增量同步水位（记录各标的云端已推到的位置，避免每天全量覆盖重写）
+STATE_DIR = HERE / "data" / "sync_state"
+API_BASE = "https://ljx-d1gjpcu23fa094e67.service.tcloudbase.com/api"
+
+
+def load_meta(name: str) -> dict:
+    p = STATE_DIR / name
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def save_meta(name: str, data: dict) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    p = STATE_DIR / name
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(p)
+
+
+def cloud_rows(kind: str, symbol: str) -> list[dict]:
+    """读云端当前已入库的行情（用于初始化增量水位；读比写便宜 10 倍）。
+    kind: 'daily' | 'hour'。返回升序文档数组。"""
+    r = requests.get(f"{API_BASE}/{kind}", params={"symbol": symbol, "limit": 300}, timeout=60)
+    r.raise_for_status()
+    return (r.json().get("data") or [])
 
 
 def push(collection: str, docs: list[dict], cfg: dict) -> int:
@@ -236,13 +272,34 @@ def fetch_recent_bars(symbol: str, days: int = 150) -> list[dict]:
 
 
 def cmd_daily(cfg: dict) -> int:
+    """增量日线同步：拉最近 150 根前复权，与云端水位对比，只推新增/复权调整过的根。
+
+    前复权价在除权除息日会整体调整，故水位按 {date: close} 记录：
+    非除权日每天仅新增 1 根（~36 次写），除权日一次性补推调整段。
+    首次运行（无水位）从云端读回当前库建水位，不做全量覆盖。
+    """
+    meta = load_meta("daily_meta.json")
     total = 0
     for t in all_targets():
         bars = fetch_recent_bars(t["symbol"], days=150)
-        docs = [{"symbol": t["symbol"], **b} for b in bars]
-        n = push("daily_bars", docs, cfg)
-        total += n
-        print(f"daily: {t['symbol']} -> {n} 根")
+        if not bars:
+            print(f"daily: {t['symbol']} 无数据，跳过")
+            continue
+        if t["symbol"] not in meta:
+            # 首次：读云端已入库的历史建水位（读 300 根 < 写 150 根 x 36 标的）
+            cloud = cloud_rows("daily", t["symbol"])
+            meta[t["symbol"]] = {b["date"]: b.get("close") for b in cloud}
+        old = meta[t["symbol"]]
+        changed = [b for b in bars if old.get(b["date"]) != b["close"]]
+        if changed:
+            docs = [{"symbol": t["symbol"], **b} for b in changed]
+            n = push("daily_bars", docs, cfg)
+            total += n
+            print(f"daily: {t['symbol']} -> {n} 根增量/复权调整（150 根中）")
+        else:
+            print(f"daily: {t['symbol']} 无变化，跳过")
+        meta[t["symbol"]] = {b["date"]: b["close"] for b in bars}
+        save_meta("daily_meta.json", meta)
     return total
 
 
@@ -288,6 +345,9 @@ def fetch_hour_bars(symbol: str, count: int = 320) -> list[dict]:
 
 
 def cmd_hours(cfg: dict) -> int:
+    """增量 60 分钟线同步：腾讯 mkline 不复权、历史不变，
+    只推超过水位的新 bar（每标的每天约 4-8 根）。首次运行读云端建水位。"""
+    meta = load_meta("hour_meta.json")
     total = 0
     for i, t in enumerate(all_targets()):
         if i:
@@ -296,10 +356,20 @@ def cmd_hours(cfg: dict) -> int:
         if not bars:
             print(f"hours: {t['symbol']} 无小时线，跳过")
             continue
-        docs = [{"symbol": t["symbol"], **b} for b in bars]
-        n = push("hour_bars", docs, cfg)
-        total += n
-        print(f"hours: {t['symbol']} -> {n} 根 ({bars[0]['date'][:8]} ~ {bars[-1]['date'][:8]})")
+        if t["symbol"] not in meta:
+            cloud = cloud_rows("hour", t["symbol"])
+            meta[t["symbol"]] = cloud[-1]["date"] if cloud else ""
+        last = meta[t["symbol"]]
+        new = [b for b in bars if b["date"] > last]
+        if new:
+            docs = [{"symbol": t["symbol"], **b} for b in new]
+            n = push("hour_bars", docs, cfg)
+            total += n
+            print(f"hours: {t['symbol']} -> {n} 根增量（截至 {new[-1]['date']}）")
+        else:
+            print(f"hours: {t['symbol']} 无新 bar，跳过")
+        meta[t["symbol"]] = bars[-1]["date"]
+        save_meta("hour_meta.json", meta)
     return total
 
 
