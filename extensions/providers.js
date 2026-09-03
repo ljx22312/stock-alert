@@ -4,7 +4,7 @@ export default function (pi) {
   pi.registerProvider("kimi", {
     name: "Kimi (api.kimi.com)",
     baseUrl: "https://api.kimi.com/coding/v1",
-    apiKey: "KIMI_API_KEY",
+    apiKey: process.env.KIMI_API_KEY,
     authHeader: true,
     api: "openai-completions",
     models: [
@@ -23,7 +23,7 @@ export default function (pi) {
   pi.registerProvider("oczen", {
     name: "OpenCode Zen",
     baseUrl: "https://opencode.ai/zen/go/v1",
-    apiKey: "OPENCODE_API_KEY",
+    apiKey: process.env.OPENCODE_API_KEY,
     authHeader: true,
     api: "openai-completions",
     models: [
