@@ -105,7 +105,14 @@ def req_code(symbol: str) -> str:
 
 # 增量同步水位（记录各标的云端已推到的位置，避免每天全量覆盖重写）
 STATE_DIR = HERE / "data" / "sync_state"
+# 水位初始化回读的 api 基址；可用 cloud_sync.json 的 "api_base" 覆盖（指向本机数据服务）
 API_BASE = "https://ljx-d1gjpcu23fa094e67.service.tcloudbase.com/api"
+
+
+def cfg_api_base(cfg: dict | None) -> str:
+    if cfg and cfg.get("api_base"):
+        return cfg["api_base"].rstrip("/")
+    return API_BASE
 
 
 def load_meta(name: str) -> dict:
@@ -126,10 +133,11 @@ def save_meta(name: str, data: dict) -> None:
     tmp.replace(p)
 
 
-def cloud_rows(kind: str, symbol: str) -> list[dict]:
+def cloud_rows(kind: str, symbol: str, cfg: dict | None = None) -> list[dict]:
     """读云端当前已入库的行情（用于初始化增量水位；读比写便宜 10 倍）。
-    kind: 'daily' | 'hour'。返回升序文档数组。"""
-    r = requests.get(f"{API_BASE}/{kind}", params={"symbol": symbol, "limit": 300}, timeout=60)
+    kind: 'daily' | 'hour'。返回升序文档数组。数据源基址取 cfg.api_base，缺省云端 api。"""
+    r = requests.get(f"{cfg_api_base(cfg)}/{kind}",
+                     params={"symbol": symbol, "limit": 300}, timeout=60)
     r.raise_for_status()
     return (r.json().get("data") or [])
 
@@ -287,7 +295,7 @@ def cmd_daily(cfg: dict) -> int:
             continue
         if t["symbol"] not in meta:
             # 首次：读云端已入库的历史建水位（读 300 根 < 写 150 根 x 36 标的）
-            cloud = cloud_rows("daily", t["symbol"])
+            cloud = cloud_rows("daily", t["symbol"], cfg)
             meta[t["symbol"]] = {b["date"]: b.get("close") for b in cloud}
         old = meta[t["symbol"]]
         changed = [b for b in bars if old.get(b["date"]) != b["close"]]
@@ -357,7 +365,7 @@ def cmd_hours(cfg: dict) -> int:
             print(f"hours: {t['symbol']} 无小时线，跳过")
             continue
         if t["symbol"] not in meta:
-            cloud = cloud_rows("hour", t["symbol"])
+            cloud = cloud_rows("hour", t["symbol"], cfg)
             meta[t["symbol"]] = cloud[-1]["date"] if cloud else ""
         last = meta[t["symbol"]]
         new = [b for b in bars if b["date"] > last]

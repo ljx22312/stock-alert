@@ -20,7 +20,7 @@ const ROOT = __dirname;
 const ENV = process.env.TCB_ENV || 'ljx-d1gjpcu23fa094e67';
 const API_KEY = process.env.CB_API_KEY || '';
 const POLL_MS = parseInt(process.env.POLL_MS || '1500', 10);
-const DB_BASE = `https://${ENV}.api.tcloudbasegateway.com/v1/database/instances/(default)/databases/(default)`;
+const DB_BASE = process.env.LOCAL_DB_BASE || 'http://127.0.0.1:8791';
 
 function loadDotEnv(file) {
   try {
@@ -37,7 +37,9 @@ const KEY = process.env.CB_API_KEY || API_KEY;
 async function cb(pathname, method = 'GET', body) {
   const r = await fetch(DB_BASE + pathname, {
     method,
-    headers: { 'Authorization': 'Bearer ' + KEY, 'Content-Type': 'application/json' },
+    headers: DB_BASE.startsWith('http://127.0.0.1') || DB_BASE.startsWith('http://localhost')
+      ? { 'Content-Type': 'application/json' }
+      : { 'Authorization': 'Bearer ' + KEY, 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   });
   const j = await r.json().catch(() => ({}));

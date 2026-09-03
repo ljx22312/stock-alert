@@ -2,7 +2,7 @@
 """StockDesk data CLI: cloud API + eastmoney realtime, stdlib only."""
 import argparse, json, re, sys, urllib.request, urllib.parse
 
-CLOUD_API = "https://ljx-d1gjpcu23fa094e67.service.tcloudbase.com/api"
+CLOUD_API = "http://127.0.0.1:8791/api"
 
 def get(url):
     req = urllib.request.Request(url, headers={"User-Agent": "stockdesk-ai/1.0"})

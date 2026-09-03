@@ -64,7 +64,7 @@ def sync_daily(cfg) -> int:
         if not docs:
             continue
         if code not in meta:
-            cloud = cloud_rows("daily", code)
+            cloud = cloud_rows("daily", code, cfg)
             meta[code] = cloud[-1]["date"] if cloud else ""
         last = meta[code]
         new = [d for d in docs if d["date"] > last]

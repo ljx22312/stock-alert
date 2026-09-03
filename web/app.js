@@ -1,5 +1,5 @@
 // 全局状态与 API
-const API = 'https://ljx-d1gjpcu23fa094e67.service.tcloudbase.com/api';
+const API = '/api';  // 同源本地数据服务（nginx 反代到 127.0.0.1:8791）
 const store = {
   dir: [],           // stocks 集合目录
   snaps: {},         // symbol -> snapshot

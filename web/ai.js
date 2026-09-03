@@ -2,9 +2,7 @@
 (() => {
 /* StockDesk AI 对话框 v2 —— 走 CloudBase 中转（匿名写请求/读回复，A 机出站处理） */
 
-const AI_ENV = 'ljx-d1gjpcu23fa094e67';
-const AI_PKEY = 'eyJhbGciOiJSUzI1NiIsImtpZCI6IjlkMWRjMzFlLWI0ZDAtNDQ4Yi1hNzZmLWIwY2M2M2Q4MTQ5OCJ9.eyJpc3MiOiJodHRwczovL2xqeC1kMWdqcGN1MjNmYTA5NGU2Ny5hcC1zaGFuZ2hhaS50Y2ItYXBpLnRlbmNlbnRjbG91ZGFwaS5jb20iLCJzdWIiOiJhbm9uIiwiYXVkIjoibGp4LWQxZ2pwY3UyM2ZhMDk0ZTY3IiwiZXhwIjo0MDkxOTI5MDkxLCJpYXQiOjE3ODgyNDU4OTEsIm5vbmNlIjoiakk0bnNqS3NUODJaX0IwOXBnMTZmdyIsImF0X2hhc2giOiJqSTRuc2pLc1Q4MlpfQjA5cGcxNmZ3IiwibmFtZSI6IkFub255bW91cyIsInNjb3BlIjoiYW5vbnltb3VzIiwicHJvamVjdF9pZCI6ImxqeC1kMWdqcGN1MjNmYTA5NGU2NyIsIm1ldGEiOnsicGxhdGZvcm0iOiJQdWJsaXNoYWJsZUtleSJ9LCJ1c2VyX3R5cGUiOiIiLCJjbGllbnRfdHlwZSI6ImNsaWVudF91c2VyIiwiaXNfc3lzdGVtX2FkbWluIjpmYWxzZX0.Y2CDPK_3zxplL8NoTvWuE3F3zQATQe7CFBgHN2CEnUHqGE-_Xbl3n6dfDsBkxIeoMrmR8J42r_0-geOj-T_svLw8T5xh-xv5gmoOGzBh_G4moFEdinxgTQ2g1-uQYHNWDMmEh9lg4ZWxmKXBoA54ex7DxxCkOwy7wPRHw8joRNEyVYYMUwD05XJXraQsM3VkUmqe8gQwCGM1A0RRBsFn2ShBAiHRa9KjkeV0Vze1xajthoS57V9t9C64F6nFYNhaU-_4_dvmZZcq-UwLKNPLfsBO0RL2gnMkkidaePb2pEmT2LLgRkvWzAo_fdR95o_GO11V5VrKu0g4xwU4r_wvKA';
-const AI_DB = `https://${AI_ENV}.api.tcloudbasegateway.com/v1/database/instances/(default)/databases/(default)`;
+const AI_DB = '';   // 同源：nginx 把 /collections/* 反代到本地数据服务
 
 const ai = {
   // session_id：一次持久对话（localStorage），agent 模式靠它续上下文
@@ -22,7 +20,7 @@ localStorage.setItem('stockdesk_ai_sid', ai.sid);
 async function aiDb(path, opts = {}) {
   const r = await fetch(AI_DB + path, {
     ...opts,
-    headers: { 'Authorization': 'Bearer ' + AI_PKEY, 'Content-Type': 'application/json', ...opts.headers },
+    headers: { 'Content-Type': 'application/json', ...opts.headers },
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.message || `HTTP ${r.status}`);
