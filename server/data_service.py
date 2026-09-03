@@ -46,7 +46,7 @@ def load_dotenv(path: Path):
 load_dotenv(HERE / ".env")
 
 PORT = int(os.environ.get("PORT", "8791"))
-HOST = os.environ.get("HOST", "0.0.0.0")
+HOST = os.environ.get("HOST", "127.0.0.1")
 DB_PATH = os.environ.get("DB_PATH", str(REPO / "data" / "stockdesk.db"))
 INGEST_TOKEN = os.environ.get("INGEST_TOKEN", "")
 FORWARD_URL = os.environ.get("FORWARD_URL", "")
@@ -214,6 +214,10 @@ def ingest_docs(collection: str, docs: list) -> tuple:
                     colset[k] = _int(v)
                 else:
                     colset[k] = v
+            if table == "signals":
+                # doc_id 镜像 CloudBase ingest 的 _id 语义（doc._id || symbol_rule_ts），供按 id 删除
+                colset["doc_id"] = doc.get("_id") or doc.get("doc_id") or \
+                    f"{doc.get('symbol')}_{doc.get('rule')}_{doc.get('ts')}"
             for c in COLS[table]:
                 if c not in doc:
                     continue
@@ -650,6 +654,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not ids:
                     return self._send(400, {"error": "ids required"})
                 deleted = ingest_delete(cname, ids)
+                if FORWARD_URL:
+                    _forward_pool.submit(forward, {"collection": collection, "action": "delete", "ids": ids})
                 return self._send(200, {"ok": True, "deleted": deleted})
             docs = body.get("docs")
             if not isinstance(docs, list) or not docs:
