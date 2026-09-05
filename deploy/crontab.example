@@ -1,0 +1,19 @@
+# StockDesk 定时任务快照（crontab -e 安装；所有任务限定交易日周一至五）
+# 收盘后日线任务（更新日线库 + 量基线 + 日线信号）
+35 15 * * 1-5  cd /home/admin/stock-alert && python3 monitor/run_daily.py >> logs/daily.out 2>&1
+# 收盘后全量数据同步（日线 + 小时线 + 量基线 + 信号 + 快照/分时帧）
+45 15 * * 1-5  cd /home/admin/stock-alert && python3 jobs/sync_data.py all >> logs/cloud-sync.out 2>&1
+# 盘中快照推送（每 5 分钟，网页数据新鲜度足够；信号提醒仍由本地监控负责）
+*/5 9-11,13-15 * * 1-5  cd /home/admin/stock-alert && python3 jobs/sync_data.py snapshot >> logs/cloud-sync.out 2>&1
+# 信号日志增量推送（每小时）
+0 * * * *  cd /home/admin/stock-alert && python3 jobs/sync_data.py signals >> logs/cloud-sync.out 2>&1
+# 申万行业指数日线更新（收盘后：刷 CSV + 推送日线/快照）
+55 15 * * 1-5  cd /home/admin/stock-alert && python3 jobs/dl_sw_industry.py >> logs/industry.log 2>&1 && python3 jobs/sync_industry.py --daily-only >> logs/industry.log 2>&1 && python3 -c "import sys;sys.path.insert(0,'jobs');from sync_industry import sync_snapshot;from sync_data import load_cfg;sync_snapshot(load_cfg())" >> logs/industry.log 2>&1
+# 宏观/海外/情绪指标每日同步（收盘后，月度/日度数据当日发布后即可拿到）
+20 16 * * 1-5  cd /home/admin/stock-alert && python3 jobs/sync_macro.py >> logs/macro.log 2>&1
+# 盘中监控常驻：开机自启 + 交易日开盘前兜底拉起（ctl.sh 自带防重复）
+@reboot  cd /home/admin/stock-alert && bash monitor/ctl.sh start >> logs/monitor.out 2>&1
+20 9 * * 1-5  cd /home/admin/stock-alert && (bash monitor/ctl.sh status | grep -q 运行中) || bash monitor/ctl.sh start >> logs/monitor.out 2>&1
+# 每日数据归档 zip
+10 18 * * 1-5  cd /home/admin/stock-alert && python3 jobs/archive_daily.py >> logs/archive.log 2>&1
+0 21 * * 1-5  cd /home/admin/stock-alert && python3 jobs/dl_sw_industry.py >> logs/industry.log 2>&1 && python3 jobs/sync_industry.py --daily-only >> logs/industry.log 2>&1 && python3 -c "import sys;sys.path.insert(0,'jobs');from sync_industry import sync_snapshot;from sync_data import load_cfg;sync_snapshot(load_cfg())" >> logs/industry.log 2>&1
