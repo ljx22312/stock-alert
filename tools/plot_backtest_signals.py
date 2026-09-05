@@ -17,8 +17,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(BASE_DIR))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 import matplotlib
 matplotlib.use("Agg")
@@ -34,10 +34,10 @@ if _cjk:
     plt.rcParams["font.sans-serif"] = [_cjk[0]]
 plt.rcParams["axes.unicode_minus"] = False
 
-from src.store import Store
-from src.strategies import INTRADAY_RULES
+from monitor.store import Store
+from monitor.strategies import INTRADAY_RULES
 from backtest_week import fetch_m5, simulate_symbol
-from src.daily import _market_code
+from monitor.daily import _market_code
 
 UP, DOWN = "#d94f4f", "#2e9e5b"          # A股习惯: 涨红跌绿
 C_PRICE, C_MA, C_PREV = "#3a6ea5", "#e8a04c", "#9a9a9a"
@@ -160,12 +160,12 @@ def plot_symbol(symbol: str, name: str, bars, daily_all, sigs, out_png: str):
 
 def main():
     symbols = sys.argv[1:] or ["002155", "000552"]
-    cfg = json.load(open(BASE_DIR / "config.json", encoding="utf-8"))
+    cfg = json.load(open(ROOT / "config.json", encoding="utf-8"))
     store = Store(cfg["db_path"])
     names = {w["symbol"]: w["name"] for w in cfg["watchlist"]}
     rules = [(n, INTRADAY_RULES[n]) for n in cfg["intraday_rules_enabled"] if n in INTRADAY_RULES]
 
-    out_dir = BASE_DIR / "charts"
+    out_dir = ROOT / "charts"
     out_dir.mkdir(exist_ok=True)
     for symbol in symbols:
         name = names.get(symbol, symbol)

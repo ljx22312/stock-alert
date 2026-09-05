@@ -15,8 +15,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(BASE_DIR))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 import matplotlib
 matplotlib.use("Agg")
@@ -33,9 +33,9 @@ if _cjk:
 plt.rcParams["axes.unicode_minus"] = False
 
 from backtest_week import fetch_m5
-from src.daily import _market_code
-from src.store import Store
-from src.strategies import RuleContext, fast_drop, slow_drop
+from monitor.daily import _market_code
+from monitor.store import Store
+from monitor.strategies import RuleContext, fast_drop, slow_drop
 
 TEST_DAYS = 16
 COOLDOWN = 30 * 60  # 秒; 与 config 全局一致
@@ -165,7 +165,7 @@ def plot_symbol(symbol: str, name: str, bars, sigs, out_png: str):
 
 
 def main():
-    cfg = json.load(open(BASE_DIR / "config.json", encoding="utf-8"))
+    cfg = json.load(open(ROOT / "config.json", encoding="utf-8"))
     store = Store(cfg["db_path"])
     names = {w["symbol"]: w["name"] for w in cfg["watchlist"]}
     plot_list = sys.argv[1:] or DEFAULT_PLOT
@@ -195,7 +195,7 @@ def main():
         for ts, rule, msg in sorted(all_sigs[s]):
             print(f"  {datetime.fromtimestamp(ts):%m-%d %H:%M}  {msg}")
         plot_symbol(s, name, bars, all_sigs[s],
-                    str(BASE_DIR / "charts" / f"drop_{s}.png"))
+                    str(ROOT / "charts" / f"drop_{s}.png"))
 
 
 if __name__ == "__main__":

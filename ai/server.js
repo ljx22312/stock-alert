@@ -30,7 +30,7 @@ function loadDotEnv(file) {
     }
   } catch {}
 }
-loadDotEnv(path.join(ROOT, '.env'));
+loadDotEnv(path.join(ROOT, '..', '.env')); // 密钥统一放仓库根 .env（见 ai/.env.example）
 
 const sessions = new Map(); // sid -> {proc, decoder, buffer, model, skill, busy, lastActive, msgId}
 
@@ -155,7 +155,7 @@ const ROUTES = {
   'GET /skills'(req, res) {
     // 静态读取 skill 目录即可（name + description 来自 SKILL.md frontmatter）
     const fs = require('fs');
-    const dir = path.join(ROOT, '.pi/skills');
+    const dir = path.join(ROOT, 'skill');
     const out = [];
     for (const name of fs.readdirSync(dir)) {
       try {

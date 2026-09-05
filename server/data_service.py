@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""StockDesk 本地数据服务 —— CloudBase 的本地替代品（零第三方依赖，Python 标准库）。
+"""StockDesk 本机数据服务（零第三方依赖，Python 标准库）。
 
-职责（与云端一一对应，响应同形状，供前端/worker/115 无缝切换）：
-  POST /ingest                     115 推送入口（x-sync-token 鉴权；写 sqlite 后转发 CloudBase 保过渡期双活）
-  GET  /api/*                      只读行情接口（复刻 cloud/functions/api/index.js 语义，{data,ts}）
-  /collections/ai_requests|ai_replies/documents  AI 消息队列（复刻 CloudBase DB HTTP 网关语义）
+职责（接口与历史云端网关同形状，供前端/worker/115 机无缝切换）：
+  POST /ingest                     数据推送入口（x-sync-token 鉴权；可选转发旧云端网关保过渡期双活）
+  GET  /api/*                      只读行情接口（与 legacy/cloudbase/functions/api 同语义，{data,ts}）
+  /collections/ai_requests|ai_replies/documents  AI 消息队列（与历史云端 DB 网关同语义）
 
 配置（环境变量，可从同目录 .env 读取）：
-  PORT/HOST          默认 8791 / 0.0.0.0
+  PORT/HOST          默认 8791 / 127.0.0.1
   DB_PATH            默认 <repo>/data/stockdesk.db
-  INGEST_TOKEN       /ingest 鉴权令牌（=115 cloud_sync.json 里的 token）
-  FORWARD_URL        转发目标（CloudBase ingest 地址）；为空则只写本地
+  INGEST_TOKEN       /ingest 鉴权令牌（= jobs 端 cloud_sync.json 里的 token）
+  FORWARD_URL        转发目标（旧云端 ingest 地址，归档见 legacy/cloudbase/）；为空则只写本地
   FORWARD_TOKEN      转发令牌（默认同 INGEST_TOKEN）
 """
 from __future__ import annotations
@@ -100,7 +100,7 @@ SCHEMA = {
         created_at INTEGER, updated_at INTEGER)""",
 }
 
-# 主键列（= CloudBase ingest 的 _id 语义）；snapshots 额外带 d（推送日）维度
+# 主键列（= ingest 接口的 _id 语义）；snapshots 额外带 d（推送日）维度
 KEY = {
     "stocks": ("symbol",), "snapshots": ("symbol",), "daily_bars": ("symbol", "date"),
     "hour_bars": ("symbol", "date"), "ticks": ("symbol", "date"),
@@ -215,7 +215,7 @@ def ingest_docs(collection: str, docs: list) -> tuple:
                 else:
                     colset[k] = v
             if table == "signals":
-                # doc_id 镜像 CloudBase ingest 的 _id 语义（doc._id || symbol_rule_ts），供按 id 删除
+                # doc_id 镜像 ingest 接口的 _id 语义（doc._id || symbol_rule_ts），供按 id 删除
                 colset["doc_id"] = doc.get("_id") or doc.get("doc_id") or \
                     f"{doc.get('symbol')}_{doc.get('rule')}_{doc.get('ts')}"
             for c in COLS[table]:
@@ -273,7 +273,7 @@ def ingest_delete(collection: str, ids: list) -> int:
     return deleted
 
 
-# ---------- 转发 CloudBase（保过渡期双活；失败重试 3 次并记日志） ----------
+# ---------- 转发旧云端网关（过渡期双活；失败重试 3 次并记日志） ----------
 _forward_pool = ThreadPoolExecutor(max_workers=2)
 _forward_log = REPO / "data" / "forward.log"
 
@@ -306,7 +306,7 @@ def forward(payload: dict):
         time.sleep(1 + attempt * 2)
 
 
-# ---------- AI 消息队列（CloudBase DB HTTP 网关语义） ----------
+# ---------- AI 消息队列（与历史云端 DB 网关同语义） ----------
 QCOLS = {
     "ai_requests": ("mode", "question", "session_id", "status", "model", "skill",
                     "target_id", "created_at", "updated_at"),
@@ -315,7 +315,7 @@ QCOLS = {
 
 
 def unwrap(v):
-    """CloudBase 文档字段可能带 {$date:{$numberLong:ms}} 包装；普通值原样返回。"""
+    """历史网关的文档字段可能带 {$date:{$numberLong:ms}} 包装；普通值原样返回。"""
     if isinstance(v, dict) and "$date" in v:
         d = v["$date"]
         if isinstance(d, dict) and "$numberLong" in d:
@@ -345,7 +345,7 @@ def q_upsert(tbl: str, doc: dict):
         finally:
             conn.close()
         return rid, False
-    # ai_replies：request_id 为主键（worker 按 request_id 查/更，等价云端单条回复）
+    # ai_replies：request_id 为主键（worker 按 request_id 查/更，等价网关单条回复）
     req_id = str(unwrap(doc.get("request_id")) or unwrap(doc.get("id")) or "")
     if not req_id:
         return "", False

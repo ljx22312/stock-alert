@@ -1,9 +1,9 @@
 """盘中监控引擎：拉快照 -> 评估盘中规则 -> 冷却去重 -> 推送。
 
 用法：
-  python3 run_monitor.py            # 常驻循环（交易时段内工作，其余时间休眠）
-  python3 run_monitor.py --once     # 强制执行一个周期（dry-run 不推送）
-  python3 run_monitor.py --push-test  # 发一条微信测试推送
+  python3 monitor/run_monitor.py            # 常驻循环（交易时段内工作，其余时间休眠）
+  python3 monitor/run_monitor.py --once     # 强制执行一个周期（dry-run 不推送）
+  python3 monitor/run_monitor.py --push-test  # 发一条微信测试推送
 
 config.json 关键项：
   push_enabled   false 时只记录信号不推送（dry-run 试运行用）
@@ -21,25 +21,25 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(BASE_DIR))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
-from src.notify import Notifier
-from src.quotes import fetch_quotes, is_trading_now
-from src.store import Store
-from src.strategies import INDEX_RULES, INTRADAY_RULES, RuleContext
+from monitor.notify import Notifier
+from monitor.quotes import fetch_quotes, is_trading_now
+from monitor.store import Store
+from monitor.strategies import INDEX_RULES, INTRADAY_RULES, RuleContext
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(BASE_DIR / "logs" / "monitor.log", encoding="utf-8"),
+        logging.FileHandler(ROOT / "logs" / "monitor.log", encoding="utf-8"),
     ],
 )
 log = logging.getLogger("monitor")
 
-CONFIG_PATH = BASE_DIR / "config.json"
+CONFIG_PATH = ROOT / "config.json"
 
 
 def load_config() -> dict:
@@ -62,7 +62,7 @@ class Engine:
         self.intraday: dict[str, list[tuple]] = {s: [] for s in self.symbols}
         self.index_intraday: list[tuple] = []
         # 轨迹落盘：每 5 分钟增量追加到 data/intraday/<YYYYMMDD>/<代码>.csv
-        self.flush_dir = BASE_DIR / "data" / "intraday"
+        self.flush_dir = ROOT / "data" / "intraday"
         self.flushed_ts: dict[str, float] = {}
         self.last_flush = 0.0
         self.today = datetime.now().strftime("%Y%m%d")

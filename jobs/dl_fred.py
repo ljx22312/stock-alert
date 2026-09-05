@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""下载 FRED 序列（fredgraph.csv 通道，远程机实测可用）→ ~/data/fred/*.csv
+"""下载 FRED 序列（fredgraph.csv 通道，远程机实测可用）→ data/downloads/fred/*.csv
 覆盖美元流动性指数输入：美联储总资产、隔夜逆回购、美元指数、美债、VIX、联邦基金利率。
-用法：python3 dl_fred.py [--start 2015-01-01]
+用法：python3 jobs/dl_fred.py [--start 2015-01-01]
 """
 import argparse
 import time
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import requests
 
-OUT = Path.home() / "data" / "fred"
+OUT = Path(__file__).resolve().parents[1] / "data" / "downloads" / "fred"
 OUT.mkdir(parents=True, exist_ok=True)
 
 # 序列ID → 说明

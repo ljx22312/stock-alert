@@ -8,7 +8,7 @@ from pathlib import Path
 
 import akshare as ak
 
-OUT = Path(__file__).resolve().parent / "data" / "downloads" / "macro"
+OUT = Path(__file__).resolve().parents[1] / "data" / "downloads" / "macro"
 OUT.mkdir(parents=True, exist_ok=True)
 
 JOBS = [

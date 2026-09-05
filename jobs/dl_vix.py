@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
-"""下载基金数据（天天基金）→ data/downloads/fund/*.csv
-覆盖：新成立基金发行、公募指数增强基金名单（沪深300/中证500/中证1000 指增基金识别后拉净值）。
-用法：python3 dl_fund.py
+"""下载中国波指 QVIX（沪深300/中证1000 期权隐含波动率）→ data/downloads/vix/*.csv
+用法：python3 dl_vix.py
 """
 import time
 from pathlib import Path
 
 import akshare as ak
 
-OUT = Path(__file__).resolve().parent / "data" / "downloads" / "fund"
+OUT = Path(__file__).resolve().parents[1] / "data" / "downloads" / "vix"
 OUT.mkdir(parents=True, exist_ok=True)
 
 def main():
     jobs = [
-        ("new_fund_issuance", lambda: ak.fund_new_found_em()),
-        ("fund_rank_all", lambda: ak.fund_open_fund_rank_em(symbol="全部")),
+        ("qvix_300", lambda: ak.index_option_300index_qvix()),
+        ("qvix_1000", lambda: ak.index_option_1000index_qvix()),
     ]
     ok, fail = 0, []
     for name, fn in jobs:

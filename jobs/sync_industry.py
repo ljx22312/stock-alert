@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""申万一级行业指数 → 云端（复用 daily_bars / snapshots / stocks 集合）。
+"""申万一级行业指数 → 数据服务（复用 daily_bars / snapshots / stocks 集合）。
 
 - 日线：读 data/downloads/sw_industry/*.csv（31 个，全历史）→ daily_bars
 - 实时：akshare index_realtime_sw → snapshots（覆盖式）
 - 目录：stocks 集合加 31 条 type=industry
 
 用法：
-  python3 sync_industry.py            # 全量推送
-  python3 sync_industry.py --daily-only   # 只推日线（收盘后 cron 用）
+  python3 jobs/sync_industry.py            # 全量推送
+  python3 jobs/sync_industry.py --daily-only   # 只推日线（收盘后 cron 用）
 """
 import argparse
 import sys
@@ -17,11 +17,12 @@ from pathlib import Path
 import requests
 
 HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
 
-from sync_cloud import push, load_cfg, load_meta, save_meta, cloud_rows  # noqa: E402
+from sync_data import push, load_cfg, load_meta, save_meta, cloud_rows  # noqa: E402
 
-SW_DIR = HERE / "data" / "downloads" / "sw_industry"
+SW_DIR = ROOT / "data" / "downloads" / "sw_industry"
 
 LEVEL1 = {  # 申万一级行业（2021 版 31 个）
     "801010": "农林牧渔", "801030": "基础化工", "801040": "钢铁", "801050": "有色金属",
@@ -39,7 +40,7 @@ def sync_daily(cfg) -> int:
     """读 31 个 CSV → daily_bars，增量推送（id=symbol_date，幂等 upsert）。
 
     行业 CSV 为全历史（6400+ 根），此前每天全量重推 ≈ 20 万次写。
-    现在按水位只推新增日期：首次从云端读回最新日期建水位，之后每天仅 ~31 行。
+    现在按水位只推新增日期：首次从数据服务读回最新日期建水位，之后每天仅 ~31 行。
     """
     meta = load_meta("industry_meta.json")
     total = 0

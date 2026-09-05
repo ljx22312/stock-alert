@@ -1,5 +1,5 @@
 /**
- * StockDesk AI Worker — 出站轮询 CloudBase，处理 fast/agent 双模式请求。
+ * StockDesk AI Worker — 出站轮询数据服务的 AI 请求队列，处理 fast/agent 双模式请求。
  *
  * 数据流：
  *   前端(匿名) --写--> ai_requests {mode, question, status:pending}
@@ -30,10 +30,10 @@ function loadDotEnv(file) {
     }
   } catch {}
 }
-loadDotEnv(path.join(ROOT, '.env'));
+loadDotEnv(path.join(ROOT, '..', '.env')); // 密钥统一放仓库根 .env（见 ai/.env.example）
 const KEY = process.env.CB_API_KEY || API_KEY;
 
-// ---------- CloudBase NoSQL HTTP API ----------
+// ---------- 数据库网关 HTTP API（同源数据服务；LOCAL_DB_BASE 指向远程旧网关时走 Bearer） ----------
 async function cb(pathname, method = 'GET', body) {
   const r = await fetch(DB_BASE + pathname, {
     method,
@@ -284,7 +284,7 @@ function spawnPi(model, sessionDir, skillPath) {
     // 并注入专家身份引导（见 extensions/providers.js 的 before_agent_start）
     args.push('--no-skills');
     args.push('--skill', path.join(SKILL_BASE, skillPath));
-    args.push('--skill', path.join(ROOT, '.pi/skills/stock-data'));
+    args.push('--skill', path.join(SKILL_BASE, 'stock-data'));
     env.SKILL_IDENTITY =
       `[专家身份] 用户在本站点选择了「${skillPath}」专家 skill，你以该领域资深专家的身份工作。` +
       `主动调用该 skill（SKILL.md）提供的方法与脚本完成用户需求，严格遵循其中的规则与输出标准；` +

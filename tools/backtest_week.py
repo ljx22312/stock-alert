@@ -20,14 +20,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(BASE_DIR))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 import requests
 
-from src.daily import compute_vol_profile, _market_code
-from src.store import Store
-from src.strategies import (DAILY_RULES, INDEX_RULES, INTRADAY_RULES,
+from monitor.daily import compute_vol_profile, _market_code
+from monitor.store import Store
+from monitor.strategies import (DAILY_RULES, INDEX_RULES, INTRADAY_RULES,
                             RuleContext)
 
 MKLINE_URL = "https://ifzq.gtimg.cn/appstock/app/kline/mkline"
@@ -110,7 +110,7 @@ def simulate_symbol(symbol, name, bars, daily_all, rules, params_cfg, cooldown_d
 
 
 def main():
-    cfg = json.load(open(BASE_DIR / "config.json", encoding="utf-8"))
+    cfg = json.load(open(ROOT / "config.json", encoding="utf-8"))
     store = Store(cfg["db_path"])
     params_cfg = cfg["params"]
     cd_default = cfg["cooldown_minutes"]

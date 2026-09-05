@@ -1,6 +1,6 @@
 /* StockDesk AI 对话框 v2 —— IIFE 封装，避免与 app.js 顶层声明冲突 */
 (() => {
-/* StockDesk AI 对话框 v2 —— 走 CloudBase 中转（匿名写请求/读回复，A 机出站处理） */
+/* StockDesk AI 对话框 v2 —— 同源中转（匿名写请求/读回复，本机 worker 出站处理） */
 
 const AI_DB = '';   // 同源：nginx 把 /collections/* 反代到本地数据服务
 

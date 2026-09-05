@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""宏观/海外/情绪指标 → 云端 macro_indicators 集合。
+"""宏观/海外/情绪指标 → 数据服务 macro_indicators 集合。
 
 读 data/downloads/{macro,vix,fred}/*.csv，每个指标提取最新值 + 近 N 年序列，
 推送 doc {id,name,unit,latest,prev,series:[[date,value]...]}，id=指标名。
-用法：python3 sync_macro.py
+用法：python3 jobs/sync_macro.py
 """
 import csv
 import math
@@ -14,10 +14,11 @@ from pathlib import Path
 import requests
 
 HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
-from sync_cloud import push, load_cfg  # noqa: E402
+from sync_data import push, load_cfg  # noqa: E402
 
-D = HERE / "data" / "downloads"
+D = ROOT / "data" / "downloads"
 HIST_YEARS = 10   # 每个指标保留近 10 年序列
 MAX_POINTS = 500  # 单序列最大点数（超出均匀抽稀，控制 ingest 请求体在 413 限制内）
 

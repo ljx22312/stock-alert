@@ -12,7 +12,7 @@ from pathlib import Path
 
 import akshare as ak
 
-OUT = Path(__file__).resolve().parent / "data" / "downloads" / "sw_industry"
+OUT = Path(__file__).resolve().parents[1] / "data" / "downloads" / "sw_industry"
 OUT.mkdir(parents=True, exist_ok=True)
 
 LEVEL1 = {  # 申万一级行业（2021 版 31 个）

@@ -13,8 +13,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(BASE_DIR))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 import matplotlib
 matplotlib.use("Agg")
@@ -29,7 +29,7 @@ if _cjk:
     plt.rcParams["font.sans-serif"] = [_cjk[0]]
 plt.rcParams["axes.unicode_minus"] = False
 
-from src.daily import _market_code
+from monitor.daily import _market_code
 from backtest_week import fetch_m5
 
 UP, DOWN = "#d94f4f", "#2e9e5b"
@@ -73,7 +73,7 @@ def bar_idx_from_ts(ts: int, bars: list[dict]) -> int:
 
 def main():
     today = datetime.now().strftime("%Y-%m-%d")
-    cfg = json.load(open(BASE_DIR / "config.json", encoding="utf-8"))
+    cfg = json.load(open(ROOT / "config.json", encoding="utf-8"))
 
     # 日线库拿昨收
     daily_conn = sqlite3.connect(cfg["db_path"])
@@ -162,7 +162,7 @@ def main():
 
     fig.suptitle(f"A股今日({today}) 报信标注: 信号触发点 vs 分时走势（腾讯5分钟K线）",
                  fontsize=14)
-    fig.savefig(BASE_DIR / "charts" / f"today_signals_{today.replace('-', '')}.png",
+    fig.savefig(ROOT / "charts" / f"today_signals_{today.replace('-', '')}.png",
                 bbox_inches="tight")
     plt.close(fig)
     print("已保存 charts/today_signals_" + today.replace("-", "") + ".png")

@@ -1,7 +1,7 @@
 """收盘后日线任务：更新日线库 + 同时段量基线 + 评估日线规则 + 推送汇总。
 
 建议 crontab（交易日 15:35 执行）:
-  35 15 * * 1-5 cd /home/admin/stock-alert && /usr/bin/python3 run_daily.py >> logs/daily.log 2>&1
+  35 15 * * 1-5 cd /home/admin/stock-alert && /usr/bin/python3 monitor/run_daily.py >> logs/daily.log 2>&1
 """
 from __future__ import annotations
 
@@ -10,22 +10,22 @@ import logging
 import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(BASE_DIR))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
-from src.daily import compute_vol_profile, fetch_daily_bars, fetch_m5_bars
-from src.notify import Notifier
-from src.store import Store
-from src.strategies import DAILY_RULES, RuleContext
+from monitor.daily import compute_vol_profile, fetch_daily_bars, fetch_m5_bars
+from monitor.notify import Notifier
+from monitor.store import Store
+from monitor.strategies import DAILY_RULES, RuleContext
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
                     handlers=[logging.StreamHandler(),
-                              logging.FileHandler(BASE_DIR / "logs" / "daily.log", encoding="utf-8")])
+                              logging.FileHandler(ROOT / "logs" / "daily.log", encoding="utf-8")])
 log = logging.getLogger("daily")
 
 
 def main():
-    cfg = json.load(open(BASE_DIR / "config.json", encoding="utf-8"))
+    cfg = json.load(open(ROOT / "config.json", encoding="utf-8"))
     store = Store(cfg["db_path"])
     notifier = None
     if cfg.get("push_enabled", True):

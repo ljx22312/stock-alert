@@ -11,7 +11,7 @@ is_running() {
     fi
     # 兜底: pid 文件缺失/失效时按进程名查找并回写，防止重复拉起多实例
     local p
-    p=$(pgrep -f "^/usr/bin/python3 run_monitor.py" | head -n 1)
+    p=$(pgrep -f "^/usr/bin/python3 (monitor/)?run_monitor.py" | head -n 1)
     if [ -n "$p" ]; then
         echo "$p" > "$PID_FILE" 2>/dev/null || true
         return 0
@@ -25,7 +25,7 @@ start() {
         exit 0
     fi
     cd "$PROJ_DIR" || exit 1
-    nohup /usr/bin/python3 run_monitor.py >> logs/monitor.out 2>&1 &
+    nohup /usr/bin/python3 monitor/run_monitor.py >> logs/monitor.out 2>&1 &
     echo $! > "$PID_FILE"
     echo "启动成功 (PID: $(cat "$PID_FILE"))"
     echo "查看日志: tail -f $LOG_FILE"

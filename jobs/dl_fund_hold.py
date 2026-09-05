@@ -13,7 +13,7 @@ from pathlib import Path
 
 import akshare as ak
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parents[1]
 RANK = HERE / "data" / "downloads" / "fund" / "fund_rank_all.csv"
 OUT = HERE / "data" / "downloads" / "fund" / "hold"
 OUT.mkdir(parents=True, exist_ok=True)

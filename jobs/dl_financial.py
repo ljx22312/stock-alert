@@ -8,7 +8,7 @@ from pathlib import Path
 
 import akshare as ak
 
-OUT = Path(__file__).resolve().parent / "data" / "downloads" / "financial"
+OUT = Path(__file__).resolve().parents[1] / "data" / "downloads" / "financial"
 OUT.mkdir(parents=True, exist_ok=True)
 
 # 季度报告截止日（2019Q4 ~ 2026Q2）
