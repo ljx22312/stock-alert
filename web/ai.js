@@ -5,10 +5,8 @@
 const AI_DB = '';   // 同源：nginx 把 /collections/* 反代到本地数据服务
 
 const ai = {
-  // session_id：一次持久对话（localStorage），agent 模式靠它续上下文
+  // session_id：一次持久对话（localStorage），agent 靠它续上下文
   sid: localStorage.getItem('stockdesk_ai_sid') || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
-  mode: localStorage.getItem('stockdesk_ai_mode') || 'fast',
-  model: localStorage.getItem('stockdesk_ai_model') || 'kimi/k3',
   skill: localStorage.getItem('stockdesk_ai_skill') || '',
   activeReq: null,       // 当前进行中的请求 id
   activeTimer: null,     // 轮询定时器
@@ -16,6 +14,8 @@ const ai = {
 };
 
 localStorage.setItem('stockdesk_ai_sid', ai.sid);
+localStorage.removeItem('stockdesk_ai_mode'); // 模式/模型选择已移除，清理旧用户残留
+localStorage.removeItem('stockdesk_ai_model');
 
 async function aiDb(path, opts = {}) {
   const r = await fetch(AI_DB + path, {
@@ -49,10 +49,8 @@ function closeAi() {
 function renderAi() {
   const box = document.getElementById('ai-msgs');
   box.innerHTML = ai.msgs.length ? '' : `<div class="ai-empty">
-    我是你的股票研究助理，两种模式：<br><br>
-    ⚡ <b>快速模式</b>：直接问答 + 查数据，1~2 秒出结果，便宜<br>
-    🤖 <b>Agent 模式</b>：完整 agent，能写代码算指标/回测，支持多轮记忆<br><br>
-    选择模式后开始提问 ↓
+    我是你的股票研究助理：可查真实行情数据、写代码算指标/做回测，支持多轮对话记忆。<br>
+    直接开始提问 ↓
   </div>`;
   for (const m of ai.msgs) box.appendChild(msgEl(m));
   box.scrollTop = box.scrollHeight;
@@ -61,7 +59,9 @@ function renderAi() {
 function msgEl(m) {
   const d = document.createElement('div');
   d.className = 'ai-msg ' + m.role;
-  const think = m.thinking ? `<details class="ai-thinking" open><summary>🤔 思考过程</summary><div class="ai-think-body">${esc(m.thinking)}</div></details>` : '';
+  // 思考过程：流式时默认展开，结束后自动收起；用户手动开合过则以手动状态为准
+  const thinkOpen = m.thinkManual !== undefined ? m.thinkManual : !!m.pending;
+  const think = m.thinking ? `<details class="ai-thinking"${thinkOpen ? ' open' : ''}><summary>🤔 思考过程</summary><div class="ai-think-body">${esc(m.thinking)}</div></details>` : '';
   d.innerHTML = `${think}<div class="ai-bubble">${linkify(esc(m.text)).replace(/\n/g, '<br>')}${m.pending ? '<span class="ai-typing">…</span>' : ''}</div>`;
   return d;
 }
@@ -76,21 +76,17 @@ function bindAi() {
   document.getElementById('ai-input').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
   });
-  document.getElementById('ai-mode-fast').onclick = () => setMode('fast');
-  document.getElementById('ai-mode-agent').onclick = () => setMode('agent');
-  document.getElementById('ai-model').onchange = e => { ai.model = e.target.value; localStorage.setItem('stockdesk_ai_model', ai.model); };
   document.getElementById('ai-skill').onchange = e => { ai.skill = e.target.value; localStorage.setItem('stockdesk_ai_skill', ai.skill); };
   document.getElementById('ai-stop').onclick = stopCurrent;
   document.getElementById('ai-clear').onclick = clearChat;
-  document.getElementById('ai-input').placeholder = ai.mode === 'agent' ? 'Agent 模式：可写代码算指标/回测，支持多轮…' : '快速模式：问行情/查数据…';
-}
-
-function setMode(m) {
-  ai.mode = m;
-  localStorage.setItem('stockdesk_ai_mode', m);
-  document.getElementById('ai-mode-fast').classList.toggle('active', m === 'fast');
-  document.getElementById('ai-mode-agent').classList.toggle('active', m === 'agent');
-  document.getElementById('ai-input').placeholder = m === 'agent' ? 'Agent 模式：可写代码算指标/回测，支持多轮…' : '快速模式：问行情/查数据…';
+  // 记录用户对思考块的手动开合（toggle 事件不冒泡，用捕获监听）
+  document.getElementById('ai-msgs').addEventListener('toggle', e => {
+    if (!e.target.classList || !e.target.classList.contains('ai-thinking')) return;
+    const box = document.getElementById('ai-msgs');
+    const idx = [...box.children].indexOf(e.target.closest('.ai-msg'));
+    if (idx >= 0 && ai.msgs[idx]) ai.msgs[idx].thinkManual = e.target.open;
+  }, true);
+  document.getElementById('ai-input').placeholder = '问行情、查数据、写代码算指标/回测…';
 }
 
 async function sendMsg() {
@@ -107,8 +103,8 @@ async function sendMsg() {
       method: 'POST',
       body: JSON.stringify({
         data: [{
-          mode: ai.mode, question: text, session_id: ai.sid, status: 'pending',
-          model: ai.model, skill: ai.mode === 'agent' ? ai.skill : '',
+          mode: 'agent', question: text, session_id: ai.sid, status: 'pending',
+          model: 'kimi/k3', skill: ai.skill,
           created_at: { $date: { $numberLong: String(Date.now()) } },
         }],
       }),
@@ -203,7 +199,7 @@ function pollReply() {
 }
 
 async function clearChat() {
-  if (!confirm('清空当前对话？Agent 模式的记忆也会清除。')) return;
+  if (!confirm('清空当前对话？Agent 的会话记忆也会清除。')) return;
   if (ai.activeTimer) { clearInterval(ai.activeTimer); ai.activeTimer = null; }
   ai.sid = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
   localStorage.setItem('stockdesk_ai_sid', ai.sid);
@@ -215,7 +211,6 @@ async function clearChat() {
 
 document.addEventListener('DOMContentLoaded', () => {
   bindAi();
-  setMode(ai.mode);
 });
 
 })();

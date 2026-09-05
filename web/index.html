@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>StockDesk 行情台</title>
 <link rel="stylesheet" href="./style.css">
-<link rel="stylesheet" href="./ai.css">
+<link rel="stylesheet" href="./ai.css?v=20260905c">
 </head>
 <body>
 <div id="content"><div class="empty">加载中…</div></div>
@@ -92,32 +92,27 @@
   <div id="ai-mask"></div>
   <div id="ai-panel">
     <div id="ai-head"><span id="ai-title">AI 助手</span><span id="ai-close">✕</span></div>
-    <div id="ai-modes">
-      <button id="ai-mode-fast" class="ai-mode">⚡ 快速</button>
-      <button id="ai-mode-agent" class="ai-mode">🤖 Agent</button>
-    </div>
     <div id="ai-config">
-      <select id="ai-model"><option>kimi/k3</option><option>oczen/deepseek-v4-flash</option><option>oczen/deepseek-v4-flash-vision-exp</option></select>
       <button id="ai-clear" title="清空对话（含 Agent 记忆）">🗑 新对话</button>
     </div>
     <div id="ai-config2">
       <select id="ai-skill" title="Agent 模式可加载专家 skill">
-        <option value="">⚙ 不使用专家 skill</option>
-        <option value="cashflow-valuation">现金流估值 DCF</option>
-        <option value="commodity-research-outlook">大宗商品研究展望</option>
-        <option value="corr-insight">相关性分析</option>
-        <option value="equity-earnings-review">财报点评</option>
-        <option value="equity-research-report-cn">机构研报(中文)</option>
-        <option value="equity-researcher">机构级投研报告</option>
-        <option value="event-etf-study">事件 ETF 研究</option>
-        <option value="financial-report-reader">财报三表解读</option>
-        <option value="fund-risk-analyzer">ETF 多维对比</option>
-        <option value="quant-factor-mining">量化因子挖掘</option>
-        <option value="stock-finance-profiler">个股财务画像</option>
-        <option value="stock-research-report-cn">证券研报(国泰海通风)</option>
-        <option value="stock-tech-analysis">技术指标分析</option>
-        <option value="trading-strategy-backtest">策略回测</option>
-        <option value="value-invest-scorer">价值投资评估</option>
+        <option value="">⚙ 自动（AI 按问题自选专家）</option>
+        <option value="cashflow-valuation">公司估值（DCF 现金流折现）</option>
+        <option value="commodity-research-outlook">大宗商品展望（能源/金属/农产品）</option>
+        <option value="corr-insight">数据相关性分析（找变量间关系）</option>
+        <option value="equity-earnings-review">最新财报点评（业绩解读）</option>
+        <option value="equity-research-report-cn">深度研报（机构风格）</option>
+        <option value="equity-researcher">个股全面分析（速览/深度研报）</option>
+        <option value="event-etf-study">热点事件分析（相关ETF与成分股）</option>
+        <option value="financial-report-reader">财报三表体检（查异常/现金流质量）</option>
+        <option value="fund-risk-analyzer">基金/ETF 对比（收益/回撤/夏普）</option>
+        <option value="quant-factor-mining">量化因子挖掘（进阶研究）</option>
+        <option value="stock-finance-profiler">个股财务体检（盈利/偿债/杜邦）</option>
+        <option value="stock-research-report-cn">券商风格研报（国泰海通/海通国际）</option>
+        <option value="stock-tech-analysis">技术面分析（MACD/均线/买卖信号）</option>
+        <option value="trading-strategy-backtest">策略回测（买卖规则→回测报告）</option>
+        <option value="value-invest-scorer">价值投资评分（护城河/估值打分）</option>
       </select>
     </div>
     <div id="ai-msgs"></div>
@@ -131,6 +126,6 @@
 
 <script src="./echarts.min.js"></script>
 <script src="./app.js?v=20260902b"></script>
-<script src="./ai.js?v=20260902a"></script>
+<script src="./ai.js?v=20260905c"></script>
 </body>
 </html>
