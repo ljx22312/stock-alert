@@ -15,10 +15,13 @@
 """
 from __future__ import annotations
 
+import csv
 import json
+import math
 import os
 import re
 import sqlite3
+import statistics
 import threading
 import time
 import urllib.request
@@ -51,6 +54,11 @@ DB_PATH = os.environ.get("DB_PATH", str(REPO / "data" / "stockdesk.db"))
 INGEST_TOKEN = os.environ.get("INGEST_TOKEN", "")
 FORWARD_URL = os.environ.get("FORWARD_URL", "")
 FORWARD_TOKEN = os.environ.get("FORWARD_TOKEN", INGEST_TOKEN)
+# 每日截面 CSV 目录（/api/market、/api/valsnap 直读，缺省本机数据资产布局）
+MARKETDATA_DIR = Path(os.environ.get("MARKETDATA_DIR", "/home/ubuntu/marketdata"))
+VALSNAP_DIR = Path(os.environ.get("VALSNAP_DIR", "/home/ubuntu/data/downloads/valuation_snapshot"))
+VALUATION_DIR = Path(os.environ.get("VALUATION_DIR", "/home/ubuntu/data/downloads/valuation"))
+FUNDFLOW_DIR = Path(os.environ.get("FUNDFLOW_DIR", "/home/ubuntu/fundflow/data"))
 
 CST = timezone(timedelta(hours=8))
 
@@ -539,8 +547,170 @@ def api_macro(q):
     return out
 
 
+def _latest_dated(directory: Path, prefix: str):
+    """目录里 prefix_YYYYMMDD.csv 的最新一天；返回 (YYYYMMDD, Path) 或 (None, None)。"""
+    best = ""
+    try:
+        for p in directory.iterdir():
+            n = p.name
+            if n.startswith(prefix + "_") and n.endswith(".csv"):
+                d = n[len(prefix) + 1:-4]
+                if len(d) == 8 and d.isdigit() and d > best:
+                    best = d
+    except FileNotFoundError:
+        return None, None
+    return (best, directory / f"{prefix}_{best}.csv") if best else (None, None)
+
+
+def api_market(q):
+    """大盘温度：全市场快照涨跌家数/中位涨幅 + 涨停/炸板/跌停池聚合。"""
+    day, path = _latest_dated(MARKETDATA_DIR / "snapshot", "market")
+    if not path:
+        return {"date": None}
+    up = down = flat = 0
+    pcts = []
+    with open(path, encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            try:
+                p = float(r.get("pct"))
+            except (TypeError, ValueError):
+                continue
+            pcts.append(p)
+            if p > 0:
+                up += 1
+            elif p < 0:
+                down += 1
+            else:
+                flat += 1
+    med = statistics.median(pcts) if pcts else None
+    limit_up = max_lbc = zha_ban = 0
+    zt = MARKETDATA_DIR / "ztpool" / f"ztpool_{day}.csv"
+    if zt.exists():
+        with open(zt, encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                limit_up += 1
+                try:
+                    max_lbc = max(max_lbc, int(float(r.get("lbc") or 0)))
+                except ValueError:
+                    pass
+    zb = MARKETDATA_DIR / "ztpool" / f"zbpool_{day}.csv"
+    if zb.exists():
+        with open(zb, encoding="utf-8-sig") as f:
+            zha_ban = sum(1 for _ in csv.DictReader(f))
+    dt = MARKETDATA_DIR / "ztpool" / f"dtpool_{day}.csv"
+    limit_down = None
+    if dt.exists():
+        with open(dt, encoding="utf-8-sig") as f:
+            limit_down = sum(1 for _ in csv.DictReader(f))
+    return {
+        "date": day, "up": up, "down": down, "flat": flat,
+        "median_pct": round(med, 2) if med is not None else None,
+        "limit_up": limit_up, "max_lbc": max_lbc,
+        "limit_down": limit_down, "zha_ban": zha_ban,
+        "zha_ban_rate": round(zha_ban / (zha_ban + limit_up) * 100, 1) if (zha_ban + limit_up) else None,
+    }
+
+
+VALSNAP_FIELDS = ("pb", "vol_ratio", "main_net", "main_ratio", "pe_dynamic", "pe_static", "pe_ttm")
+
+
+def api_valsnap(q):
+    """个股收盘估值/资金快照（valuation_snapshot CSV，字段含 pb/量比/主力净流入）。"""
+    symbol = str(q.get("symbol") or "").strip()
+    if not symbol:
+        raise ValueError("symbol required")
+    day, path = _latest_dated(VALSNAP_DIR, "snap")
+    if not path:
+        return {}
+    with open(path, encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            if (r.get("code") or "").strip() != symbol:
+                continue
+            out = {"date": day}
+            for k in VALSNAP_FIELDS:
+                try:
+                    out[k] = float(r.get(k))
+                except (TypeError, ValueError):
+                    out[k] = None
+            return out
+    return {"date": day}
+
+
+# /api/valuation 可选指标（对应 valuation CSV 列）
+VAL_METRICS = ("pe_ttm", "pe_static", "pb", "ps_ttm", "pcf_ocf_ttm", "peg",
+               "div_yield", "total_mv", "circ_mv")
+
+
+def api_valuation(q):
+    """个股估值历史（valuation CSV，2018 起）：全量算分位，抽稀 ≤600 点下发。"""
+    symbol = str(q.get("symbol") or "").strip()
+    metric = str(q.get("metric") or "pe_ttm").strip()
+    if not symbol:
+        raise ValueError("symbol required")
+    if not re.fullmatch(r"\d{6}|(?:sh|sz|bj)\d{6}|801\d{3}", symbol):
+        raise ValueError("bad symbol")
+    if metric not in VAL_METRICS:
+        raise ValueError(f"metric must be one of {VAL_METRICS}")
+    path = VALUATION_DIR / f"{symbol}.csv"
+    if not path.exists():
+        return {}
+    rows = []
+    with open(path, encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            try:
+                rows.append((r["date"], float(r[metric])))
+            except (KeyError, TypeError, ValueError):
+                continue
+    rows.sort(key=lambda x: x[0])
+    if not rows:
+        return {}
+    vals = [v for _, v in rows]
+    latest_v = vals[-1]
+    stats = {
+        "count": len(vals),
+        "latest": latest_v,
+        "pctile": round(sum(1 for v in vals if v < latest_v) / len(vals) * 100, 1),
+        "min": round(min(vals), 4),
+        "max": round(max(vals), 4),
+        "median": round(statistics.median(vals), 4),
+    }
+    pts = rows
+    if len(pts) > 600:  # 均匀抽稀且保留最新点
+        stride = math.ceil(len(pts) / 600)
+        pts = pts[::stride]
+        if pts[-1] != rows[-1]:
+            pts.append(rows[-1])
+    return {"symbol": symbol, "metric": metric, "start": rows[0][0],
+            "updated": rows[-1][0], "points": pts, "stats": stats}
+
+
+def api_fundflow(q):
+    """个股主力资金流历史（同花顺口径，约 10 个月逐日；金额单位元）。"""
+    symbol = str(q.get("symbol") or "").strip()
+    if not symbol:
+        raise ValueError("symbol required")
+    if not re.fullmatch(r"\d{6}|(?:sh|sz|bj)\d{6}|801\d{3}", symbol):
+        raise ValueError("bad symbol")
+    path = FUNDFLOW_DIR / f"{symbol}.csv"
+    if not path.exists():
+        return {}
+    out = []
+    with open(path, encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            row = {"date": r.get("date")}
+            for k in ("main_net", "main_ratio", "super_net", "large_net",
+                      "medium_net", "small_net", "close"):
+                try:
+                    row[k] = float(r.get(k))
+                except (TypeError, ValueError):
+                    row[k] = None
+            out.append(row)
+    return {"symbol": symbol, "count": len(out), "rows": out} if out else {}
+
+
 # ---------- HTTP 服务 ----------
-CACHE_TTL = {"quote": 30, "tick": 30, "signals": 15}
+CACHE_TTL = {"quote": 30, "tick": 30, "signals": 15, "market": 600, "valsnap": 600,
+             "valuation": 600, "fundflow": 600}
 CACHE_DEFAULT = 300
 _cache = {}
 _cache_lock = threading.Lock()
@@ -728,7 +898,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(405, {"error": "method not allowed"})
         route = path[len("/api"):].rstrip("/") or "/health"
         routes = ["/health", "/quote", "/daily", "/stocks", "/signals", "/stats",
-                  "/hour", "/tick", "/profile", "/macro"]
+                  "/hour", "/tick", "/profile", "/macro", "/market", "/valsnap",
+                  "/valuation", "/fundflow"]
         hit = next((r for r in routes if route.endswith(r)), None)
         if not hit:
             return self._send(404, {"error": f"not found (path={path})"})
@@ -763,6 +934,14 @@ class Handler(BaseHTTPRequestHandler):
             return {"data": api_profile(q), "ts": ts}
         if hit == "/macro":
             return {"data": api_macro(q), "ts": ts}
+        if hit == "/market":
+            return {"data": api_market(q), "ts": ts}
+        if hit == "/valsnap":
+            return {"data": api_valsnap(q), "ts": ts}
+        if hit == "/valuation":
+            return {"data": api_valuation(q), "ts": ts}
+        if hit == "/fundflow":
+            return {"data": api_fundflow(q), "ts": ts}
         raise ValueError("unknown route")
 
 

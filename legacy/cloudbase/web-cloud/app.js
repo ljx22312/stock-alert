@@ -19,6 +19,12 @@ const store = {
   markSignal: null,  // 详情页待标记的信号
   signalHist: null,  // symbol -> 该标的信号历史（缓存）
   showAllSignals: false, // 是否显示全部历史信号标记
+  market: null,      // 大盘温度（/api/market，云版无此端点则为 null）
+  marketAt: 0,       // 大盘温度上次拉取时间
+  valsnap: null,     // {sym, data} 详情页收盘估值/资金快照
+  valMetric: 'pe_ttm', // 估值历史当前指标
+  valReq: 0, flowReq: 0, // 估值/资金流请求序号（竞态守卫）
+  valChart: null, flowChart: null,
 };
 const saveFavs = () => localStorage.setItem('stockdesk_favs', JSON.stringify([...store.favs]));
 
@@ -46,11 +52,18 @@ const fmtAmt = (w) => w >= 1e4 ? (w / 1e4).toFixed(2) + '亿' : w + '万';
 const fmtMv = (v) => v && v > 0 ? v.toFixed(1) + '亿' : '-';
 const fmtPe = (v) => v && v > 0 ? v.toFixed(1) : '-';
 const ruleText = (r) => r.startsWith('daily:') ? '日线' : r.endsWith('_hist') ? '历史回放' : '盘中';
+// 主力净流入（元）→ 万/亿显示
+const fmtMainNet = (y) => Math.abs(y) >= 1e8 ? (y / 1e8).toFixed(2) + '亿'
+  : Math.abs(y) >= 1e4 ? (y / 1e4).toFixed(0) + '万' : String(Math.round(y));
 
-// 详情页行情头部（每个术语带 ⓘ 解释入口）
+// 详情页行情头部（每个术语带 ⓘ 解释入口；PB/量比/主力净流入来自收盘估值快照，云版无端点时显示 -）
 function quoteGridHtml(q) {
+  const v = store.valsnap && store.valsnap.sym === q.symbol ? store.valsnap.data : null;
+  const mainNet = v && v.main_net != null
+    ? `<span class="${cls(v.main_net)}">${fmtMainNet(v.main_net)}</span>${v.main_ratio != null ? ' <span style="font-size:11px;color:#8a8f98">' + v.main_ratio.toFixed(1) + '%</span>' : ''}`
+    : '-';
   return `
-    <div class="q-price ${cls(q.pct_chg)}">${q.price.toFixed(2)} <span style="font-size:14px">${fmtPct(q.pct_chg)}<i class="help-ico" data-help="pct">ⓘ</i></span></div>
+    <div class="q-price ${cls(q.pct_chg)}">${q.price.toFixed(2)} <span class="pct-pill ${cls(q.pct_chg) || 'flat'}">${fmtPct(q.pct_chg)}</span> <i class="help-ico" data-help="pct">ⓘ</i></div>
     <div class="q-grid">
       <div class="q-item"><span>今开<i class="help-ico" data-help="open">ⓘ</i></span>${q.open.toFixed(2)}</div>
       <div class="q-item"><span>昨收<i class="help-ico" data-help="prev_close">ⓘ</i></span>${q.prev_close.toFixed(2)}</div>
@@ -63,6 +76,9 @@ function quoteGridHtml(q) {
       <div class="q-item"><span>总市值<i class="help-ico" data-help="total_mv">ⓘ</i></span>${fmtMv(q.total_mv)}</div>
       <div class="q-item"><span>流通市值<i class="help-ico" data-help="circ_mv">ⓘ</i></span>${fmtMv(q.circ_mv)}</div>
       <div class="q-item"><span>市盈率<i class="help-ico" data-help="pe_ttm">ⓘ</i></span>${fmtPe(q.pe_ttm)}</div>
+      <div class="q-item"><span>市净率<i class="help-ico" data-help="pb">ⓘ</i></span>${v && v.pb != null ? v.pb.toFixed(2) : '-'}</div>
+      <div class="q-item"><span>量比<i class="help-ico" data-help="vol_ratio">ⓘ</i></span>${v && v.vol_ratio != null ? v.vol_ratio.toFixed(2) : '-'}</div>
+      <div class="q-item"><span>主力净流入<i class="help-ico" data-help="main_net">ⓘ</i></span>${mainNet}</div>
     </div>`;
 }
 
@@ -74,8 +90,39 @@ async function refreshSnapshots() {
   store.snaps = Object.fromEntries(list.map(q => [q.symbol, q]));
 }
 
+// ---------- 大盘温度（全市场涨跌/涨停聚合；云版无 /api/market 端点时静默隐藏） ----------
+async function loadMarketTemp() {
+  try {
+    store.market = await api('/market');
+    store.marketAt = Date.now();
+  } catch { store.market = null; }
+  if (store.page === 'watch') renderWatch();
+}
+
+function marketTempHtml(m) {
+  if (!m || !m.date) return '';
+  const up = m.up || 0, down = m.down || 0;
+  const ratio = up / Math.max(1, up + down);
+  const upW = Math.round(ratio * 1000) / 10;
+  // 情绪词由上涨家数占比机械推导：>=70% 火热 / >=55% 偏暖 / 45~55% 中性 / >=30% 偏冷 / 其余冰点
+  const [vd, vc] = ratio >= 0.7 ? ['火热', 'warm'] : ratio >= 0.55 ? ['偏暖', 'warm']
+    : ratio >= 0.45 ? ['中性', 'neutral'] : ratio >= 0.3 ? ['偏冷', 'cold'] : ['冰点', 'cold'];
+  const stat = (label, val, c) => `<span>${label}<b class="${c || ''}">${val}</b></span>`;
+  return `<div class="market-temp" data-help="market">
+    <div class="mt-head"><span class="mt-title">大盘温度</span><i class="help-ico" data-help="market">ⓘ</i><span class="mt-verdict ${vc}">${vd}</span><span class="mt-date">${m.date.slice(4, 6)}-${m.date.slice(6, 8)} 收盘</span></div>
+    <div class="mt-bar-wrap"><span class="mt-side up">上涨 <b>${up}</b></span><div class="mt-bar"><i style="width:${upW}%"></i></div><span class="mt-side down">下跌 <b>${down}</b></span></div>
+    <div class="mt-stats">
+      ${stat('涨停', m.limit_up ? m.limit_up + (m.max_lbc > 1 ? '·' + m.max_lbc + '板' : '') : 0, 'up')}
+      ${stat('跌停', m.limit_down != null ? m.limit_down : '—', 'down')}
+      ${stat('炸板率', m.zha_ban_rate != null ? m.zha_ban_rate + '%' : '—')}
+      ${stat('中位涨幅', m.median_pct != null ? fmtPct(m.median_pct) : '—', m.median_pct > 0 ? 'up' : m.median_pct < 0 ? 'down' : '')}
+    </div>
+  </div>`;
+}
+
 // ---------- 页面：自选 ----------
 function renderWatch() {
+  if (!store.market && Date.now() - store.marketAt > 60000) loadMarketTemp();
   const groups = { stock: [], index: [] };
   for (const d of store.dir) (groups[d.type] || []).push(d);
   const favItems = [...store.favs].map(findItem).filter(Boolean);
@@ -93,12 +140,12 @@ function renderWatch() {
     const q = snap(it.symbol) || {};
     return `<div class="card" data-sym="${it.symbol}">
       <div><div class="name">${esc(it.name)}</div><div class="sub">${esc(it.symbol)}${it.type === 'index' ? ' · 指数' : ''}</div></div>
-      <div class="num">${q.price != null ? q.price.toFixed(2) : '-'}</div>
-      <div class="num ${cls(q.pct_chg)}">${fmtPct(q.pct_chg)}</div>
+      <div class="num price ${cls(q.pct_chg)}">${q.price != null ? q.price.toFixed(2) : '-'}</div>
+      <div class="num"><span class="pct-pill ${cls(q.pct_chg) || 'flat'}">${fmtPct(q.pct_chg)}</span></div>
     </div>`;
   }).join('') : '<div class="empty">自选为空，点卡片进入详情后收藏</div>';
 
-  document.getElementById('content').innerHTML = `<div class="tabs">${tabHtml}</div>${listHtml}`;
+  document.getElementById('content').innerHTML = marketTempHtml(store.market) + `<div class="tabs">${tabHtml}</div>${listHtml}`;
   document.querySelectorAll('#content .tab').forEach(el =>
     el.onclick = () => { store.tab = el.dataset.tab; renderWatch(); });
   document.querySelectorAll('#content .card').forEach(el =>
@@ -112,14 +159,14 @@ function renderIndex() {
   const sz = all.filter(d => d.symbol.startsWith('sz'));
   const ind = all.filter(d => d.type === 'industry');
   const list = store.kind === 'industry' ? ind : (store.kind === 'stock' ? sh : sz);
-  const tabs = [['stock', '沪市指数'], ['index', '深市指数'], ['industry', '行业']];
+  const tabs = [['stock', '沪市指数'], ['index', '深市指数'], ['industry', '行业<i class="help-ico" data-help="industry_sw">ⓘ</i>']];
   const tabHtml = tabs.map(([k, t]) => `<span class="tab ${k === store.kind ? 'active' : ''}" data-kind="${k}">${t}</span>`).join('');
   const listHtml = list.map(it => {
     const q = snap(it.symbol) || {};
     return `<div class="card" data-sym="${it.symbol}">
       <div><div class="name">${esc(it.name)}</div><div class="sub">${esc(it.symbol)}</div></div>
-      <div class="num">${q.price != null ? q.price.toFixed(2) : '-'}</div>
-      <div class="num ${cls(q.pct_chg)}">${fmtPct(q.pct_chg)}</div>
+      <div class="num price ${cls(q.pct_chg)}">${q.price != null ? q.price.toFixed(2) : '-'}</div>
+      <div class="num"><span class="pct-pill ${cls(q.pct_chg) || 'flat'}">${fmtPct(q.pct_chg)}</span></div>
     </div>`;
   }).join('');
   document.getElementById('content').innerHTML = `<div class="tabs">${tabHtml}</div>${listHtml}`;
@@ -138,7 +185,8 @@ async function renderSignals() {
   const html = realtime.length ? realtime.map(s => {
     const t = new Date(s.ts * 1000);
     const ts = `${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')} ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
-    return `<div class="sig" data-sid="${s.id ?? s.ts}" data-sym="${esc(s.symbol)}"><div class="sig-meta">${ruleText(s.rule)} · ${ts} · ${esc(s.symbol)}</div><div class="sig-msg">${esc(s.message)}</div></div>`;
+    const rc = s.rule.startsWith('daily:') ? 'daily' : 'rt';
+    return `<div class="sig ${rc}" data-sid="${s.id ?? s.ts}" data-sym="${esc(s.symbol)}"><div class="sig-meta">${ruleText(s.rule)} · ${ts} · ${esc(s.symbol)}</div><div class="sig-msg">${esc(s.message)}</div></div>`;
   }).join('') : '<div class="empty">暂无信号</div>';
   document.getElementById('content').innerHTML = `<div class="chart-help"><span class="chip" data-help="signal">信号是什么 ⓘ</span></div>` + html;
   document.querySelectorAll('#content .sig').forEach(el => {
@@ -159,7 +207,7 @@ function renderMe() {
   document.getElementById('content').innerHTML = `
     <div class="sec-title">我的自选（${validFavs.length}）</div>
     <div class="card" style="display:block">${favHtml}</div>
-    <div class="sec-title">同步状态</div>
+    <div class="sec-title">同步状态 <i class="help-ico" data-help="sync">ⓘ</i></div>
     <div class="card" style="display:block;padding:10px 14px">
       <div class="fav-row"><span>日线同步</span><span class="sub">交易日 15:45</span></div>
       <div class="fav-row"><span>快照同步</span><span class="sub">盘中每 5 分钟</span></div>
@@ -223,7 +271,7 @@ async function renderMacro() {
       const chg = macroChg(it);
       const d = chg ? chg.d : 0;
       html += `<div class="mcard" data-id="${esc(it.id)}">
-        <div class="mname">${esc(it.name)}</div>
+        <div class="mname"><span class="mname-txt">${esc(it.name)}</span><i class="help-ico" data-help="${esc(it.id)}">ⓘ</i></div>
         <div class="mval">${fmtMacroNum(it.latest)}<span class="munit">${esc(it.unit)}</span></div>
         <div class="mrow"><span class="mchg ${cls(d)}">${chg ? '较上次 ' + esc(chg.txt) : '—'}</span><span class="mdate">${esc((it.series[it.series.length - 1] || [''])[0])}</span></div>
         <div class="mspark" data-id="${esc(it.id)}"></div>
@@ -250,6 +298,7 @@ async function openMacroDetail(id) {
   if (!it) return;
   store.macroSel = it;
   document.getElementById('md-name').textContent = it.name;
+  document.getElementById('md-help').dataset.help = it.id;
   const chg = macroChg(it);
   document.getElementById('md-val').innerHTML =
     `<span class="md-num">${fmtMacroNum(it.latest)}<span class="munit">${esc(it.unit)}</span></span>` +
@@ -315,6 +364,19 @@ async function showDetail(sym, markSignal = null) {
   updateFavBtn();
   switchChartType(store.chartType);
   loadProfile(sym);
+  loadValsnap(sym);
+  loadValHist(sym);
+  loadFundFlow(sym);
+}
+
+// 收盘估值/资金快照（市净率/量比/主力净流入三格）；云版无端点时静默，格子显示 -
+async function loadValsnap(sym) {
+  if (!store.valsnap || store.valsnap.sym !== sym) {
+    try {
+      store.valsnap = { sym, data: await api('/valsnap?symbol=' + encodeURIComponent(sym)) };
+    } catch { store.valsnap = { sym, data: null }; }
+  }
+  if (store.detail === sym && snap(sym)) showDetailQuoteOnly();
 }
 
 function updateFavBtn() {
@@ -643,13 +705,141 @@ async function loadProfile(sym) {
 function hideDetail() {
   store.chartReq++; // 使在途的 loadChart 结果作废
   store.profileReq++;
+  store.valReq++;
+  store.flowReq++;
   store.markSignal = null;
   store.showAllSignals = false;
   document.getElementById('detail').style.display = 'none';
+  document.getElementById('val-sec').style.display = 'none';
+  document.getElementById('flow-sec').style.display = 'none';
   const tip = document.getElementById('sig-tip');
   if (tip) tip.style.display = 'none';
   if (store.chart) { store.chart.dispose(); store.chart = null; }
   if (store.profileChart) { store.profileChart.dispose(); store.profileChart = null; }
+  if (store.valChart) { store.valChart.dispose(); store.valChart = null; }
+  if (store.flowChart) { store.flowChart.dispose(); store.flowChart = null; }
+}
+
+// ---------- 估值历史 / 主力资金流（本机独有端点，云版无此端点时区块自动隐藏） ----------
+const VAL_NAME = {
+  pe_ttm: '市盈率TTM', pe_static: '市盈率(静)', pb: '市净率', ps_ttm: '市销率',
+  pcf_ocf_ttm: '市现率', peg: 'PEG', div_yield: '股息率', total_mv: '总市值', circ_mv: '流通市值',
+};
+const valFmt = (metric) => (v) => {
+  if (v == null || isNaN(v)) return '-';
+  if (metric === 'total_mv' || metric === 'circ_mv') return (v / 1e8).toFixed(0) + '亿';
+  if (metric === 'div_yield') return v.toFixed(2) + '%';
+  return v.toFixed(2);
+};
+
+async function loadValHist(sym, metric) {
+  const req = ++store.valReq;
+  store.valMetric = metric || store.valMetric || 'pe_ttm';
+  document.getElementById('val-metric-help').dataset.help = store.valMetric;
+  let data = null;
+  try { data = await api(`/valuation?symbol=${encodeURIComponent(sym)}&metric=${store.valMetric}`); }
+  catch { /* 云版无端点 */ }
+  if (req !== store.valReq) return;
+  renderValHist(sym, data);
+}
+
+function renderValHist(sym, data) {
+  const sec = document.getElementById('val-sec');
+  const ok = data && data.points && data.points.length && store.detail === sym;
+  sec.style.display = ok ? 'block' : 'none';
+  if (!ok) return;
+  const since = data.start.slice(0, 4);
+  const fmt = valFmt(data.metric);
+  document.getElementById('val-stat').textContent =
+    `当前 ${fmt(data.stats.latest)} · ${since} 年以来第 ${data.stats.pctile}% 分位（${fmt(data.stats.min)} ~ ${fmt(data.stats.max)}）`;
+  const el = document.getElementById('val-chart');
+  el.style.height = '190px';
+  if (store.valChart) store.valChart.dispose();
+  store.valChart = echarts.init(el);
+  store.valChart.setOption({
+    backgroundColor: 'transparent',
+    animation: false,
+    grid: { left: 60, right: 12, top: 12, bottom: 26 },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#222834', borderColor: '#3a4250', textStyle: { color: '#d8dce3', fontSize: 12 },
+      formatter: (ps) => {
+        const p = ps[0];
+        return `${p.axisValue}<br/><span style="color:#4d8fd1">${VAL_NAME[data.metric]}</span>：${fmt(p.value)}`;
+      },
+    },
+    xAxis: {
+      type: 'category', boundaryGap: false,
+      data: data.points.map(p => p[0]),
+      axisLine: { lineStyle: { color: '#3a4250' } },
+      axisLabel: { color: '#8a8f98', fontSize: 11, hideOverlap: true },
+    },
+    yAxis: {
+      type: 'value', scale: true,
+      splitLine: { lineStyle: { color: '#262c36' } },
+      axisLabel: { color: '#8a8f98', fontSize: 11, formatter: fmt },
+    },
+    dataZoom: [{ type: 'inside' }],
+    series: [{
+      type: 'line', data: data.points.map(p => p[1]), showSymbol: false,
+      lineStyle: { width: 1.5, color: '#4d8fd1' },
+      areaStyle: { color: 'rgba(77,143,209,.12)' },
+    }],
+  });
+}
+
+async function loadFundFlow(sym) {
+  const req = ++store.flowReq;
+  let data = null;
+  try { data = await api(`/fundflow?symbol=${encodeURIComponent(sym)}`); }
+  catch { /* 云版无端点 */ }
+  if (req !== store.flowReq) return;
+  renderFundFlow(sym, data);
+}
+
+function renderFundFlow(sym, data) {
+  const sec = document.getElementById('flow-sec');
+  const rows = data && data.rows && data.rows.length && store.detail === sym ? data.rows : null;
+  sec.style.display = rows ? 'block' : 'none';
+  if (!rows) return;
+  const fmtYi = (v) => Math.abs(v) >= 1e8 ? (v / 1e8).toFixed(1) + '亿'
+    : Math.abs(v) >= 1e4 ? (v / 1e4).toFixed(0) + '万' : String(Math.round(v));
+  let cum = 0;
+  const cumArr = rows.map(r => (cum += (r.main_net || 0)));
+  const el = document.getElementById('flow-chart');
+  el.style.height = '210px';
+  if (store.flowChart) store.flowChart.dispose();
+  store.flowChart = echarts.init(el);
+  store.flowChart.setOption({
+    backgroundColor: 'transparent',
+    animation: false,
+    legend: { data: ['当日净流入', '累计'], textStyle: { color: '#8a8f98' }, top: 0 },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#222834', borderColor: '#3a4250', textStyle: { color: '#d8dce3', fontSize: 12 },
+      formatter: (ps) => {
+        const r = rows[Math.min(ps[0].dataIndex, rows.length - 1)];
+        const pct = r.main_ratio != null ? `（占比 ${(r.main_ratio * 100).toFixed(1)}%）` : '';
+        return `${r.date}<br/>主力净流入 <span style="color:${r.main_net >= 0 ? '#e05555' : '#3fbf7f'}">${fmtYi(r.main_net)}</span>${pct}<br/>累计 ${fmtYi(cumArr[ps[0].dataIndex])}`;
+      },
+    },
+    grid: { left: 60, right: 60, top: 26, bottom: 26 },
+    xAxis: {
+      type: 'category', data: rows.map(r => r.date),
+      axisLine: { lineStyle: { color: '#3a4250' } },
+      axisLabel: { color: '#8a8f98', fontSize: 11, hideOverlap: true },
+    },
+    yAxis: [
+      { type: 'value', scale: true, splitLine: { lineStyle: { color: '#262c36' } }, axisLabel: { color: '#8a8f98', fontSize: 11, formatter: fmtYi } },
+      { type: 'value', scale: true, splitLine: { show: false }, axisLabel: { color: '#8a8f98', fontSize: 11, formatter: fmtYi } },
+    ],
+    series: [
+      { name: '当日净流入', type: 'bar', data: rows.map(r => r.main_net), yAxisIndex: 0,
+        itemStyle: { color: (p) => p.value >= 0 ? '#e05555' : '#3fbf7f' } },
+      { name: '累计', type: 'line', data: cumArr, yAxisIndex: 1, showSymbol: false,
+        lineStyle: { width: 1.5, color: '#f5c242' } },
+    ],
+  });
 }
 
 // ---------- 导航 ----------
@@ -703,6 +893,7 @@ document.getElementById('sig-toggle').onclick = () => {
   updateSignalToggle();
   loadChart(store.detail, store.chartRange);
 };
+document.getElementById('val-metric').onchange = (e) => loadValHist(store.detail, e.target.value);
 
 boot().catch(e => {
   document.getElementById('content').innerHTML = `<div class="empty">加载失败: ${e.message}</div>`;
@@ -883,6 +1074,219 @@ const HELP = {
     what: '这些是影响整个市场的"大环境"数据，不是某一只股票。比如：货币供应（M1/M2）代表市场里有多少钱，CPI/PPI 代表物价贵不贵，PMI 代表工厂生意好不好，两融余额代表大家借钱炒股的热度。卡片上的小曲线是最近 10 年的走势，红色数字是比上一次数据涨了，绿色是跌了。',
     when: '想知道现在整个市场处在一个什么样的环境（钱多不多、经济热不热、海外紧不紧），就来看这个页面。大环境会间接影响所有股票。',
     prompt: '用大白话给我讲讲解读宏观指标的基本方法：M1/M2、CPI、PPI、PMI、社融、两融余额这些分别代表什么？怎么看它们现在高不高、对股市有什么影响？',
+  },
+  market: {
+    title: '大盘温度',
+    what: '整个市场当天的整体表现：多少家上涨、多少家下跌、涨停/跌停各多少家、涨停后炸板（封不住板）的比例、以及全部股票涨跌幅的中间值。它说的是"整体环境"，不是某一只股票。',
+    when: '想判断今天是普涨还是普跌、市场情绪热不热，就扫一眼这里。涨停多且炸板率低说明情绪偏热；下跌家数远多于上涨说明整体走弱，个股操作要更谨慎。',
+    prompt: '用大白话解释怎么通过上涨下跌家数、涨停数、炸板率、涨跌幅中位数来判断当天A股的整体情绪？',
+  },
+  pb: {
+    title: '市净率（PB）',
+    what: '股价相当于公司每股净资产的多少倍。净资产可以粗略理解为公司的"家底"（资产减去负债）。PB=1 表示股价正好等于家底价。',
+    when: '看银行、地产、钢铁这类重资产行业时 PB 特别有用。PB 低不一定是便宜，要结合盈利能力一起看。',
+    prompt: '用大白话解释"市净率（PB）"是什么？PB 和市盈率 PE 有什么区别，分别适合看什么类型的公司？',
+  },
+  vol_ratio: {
+    title: '量比',
+    what: '今天的成交量和最近几天同时段的平均成交量比。量比大于 1 说明今天比平时热闹（放量），小于 1 说明比平时清淡（缩量）。',
+    when: '价格在涨、量比也明显大于 1，说明这个涨有真金白银支撑；价格涨但量比很小，就要多留个心眼。',
+    prompt: '股票里的"量比"是什么意思？量比高和低分别说明什么？怎么用它判断放量缩量？',
+  },
+  main_net: {
+    title: '主力净流入',
+    what: '大单资金（一般代表机构、大户）当天买入减去卖出的差额。正数代表主力整体在买进，负数代表在卖出；旁边的百分比是它占当天成交额的比例。',
+    when: '想知道"大资金"今天是在买还是在卖，看它最直观。但注意：主力资金也会骗线，别只凭这一个指标做决定。',
+    prompt: '用大白话解释股票的"主力净流入"是什么？主力净流入为正就一定会涨吗？看这个指标要注意什么坑？',
+  },
+  val_hist: {
+    title: '估值历史',
+    what: '把这只股票 2018 年以来的市盈率、市净率、股息率等估值指标画成曲线。旁边的"分位"是说：当前值在这段历史里从低到高排在第几——第 20% 分位意思是比历史上 80% 的时间都便宜。',
+    when: '判断现在相对自己的历史是贵还是便宜：低分位往往是布局区，高分位要警惕。注意：便宜不等于会涨，先看公司基本面有没有变坏，周期股的低分位经常是陷阱。',
+    prompt: '市盈率的历史分位数怎么用？低分位的股票一定值得买吗？请用大白话讲讲估值百分位的用法和常见的坑。',
+  },
+  fund_hist: {
+    title: '主力资金流',
+    what: '近 10 个月每天大单资金净买入（红柱）或净卖出（绿柱）的金额，黄线是这段时间的累计净流入。柱子和黄线一起看：黄线持续向上说明主力整体在吸筹，向下说明在撤。',
+    when: '想确认一段上涨或下跌有没有大资金参与时看它。注意：资金流只是从成交结构反推的参考，主力可以对倒造假，务必结合价格位置和基本面一起判断。',
+    prompt: '用大白话解释股票的"主力资金流"怎么看？单日净流入和累计净流入分别说明什么？这个指标有什么局限？',
+  },
+  // ---------- 宏观指标逐个注释（key = 指标 id） ----------
+  m2_yoy: {
+    title: 'M2 同比',
+    what: 'M2 是市场上"钱"的总量（现金＋活期＋定期存款都算），同比是跟去年同月比多了百分之几。钱变多了，其中一部分就可能流进股市。',
+    when: 'M2 增速持续走高，说明央行在放水、资金面宽松，对股市是偏暖的大环境；持续走低则相反。它变化慢，看趋势不看单月。',
+    prompt: '用大白话解释 M2 是什么？M2 同比增速高低对股市分别意味着什么？',
+  },
+  m1_yoy: {
+    title: 'M1 同比',
+    what: 'M1 是"活钱"——现金加企业活期存款，代表随时能花出去的钱。M1 增速高，说明企业手里活钱多、经营活跃；M1 和 M2 的差距（剪刀差）能看经济活力。',
+    when: 'M1 增速明显回升，往往领先于经济和股市回暖；M1 长期低迷说明钱趴在账上不动，经济偏冷。',
+    prompt: '用大白话解释 M1 和 M2 有什么区别？什么是 M1-M2 剪刀差，它对经济和股市有什么预示作用？',
+  },
+  cpi_yoy: {
+    title: 'CPI 同比',
+    what: 'CPI 是老百姓消费物价的涨幅，同比是跟去年同月比。2% 左右最舒服：太高是通胀（钱贬值），负数说明物价在跌（通缩，需求不足）。',
+    when: 'CPI 温和上行说明需求回暖，利好消费类公司；CPI 长期为负说明消费疲软，政策往往会出手刺激，那时要盯政策方向。',
+    prompt: '用大白话解释 CPI 同比是什么？CPI 太高、太低、负增长分别说明经济什么问题，对股市有什么影响？',
+  },
+  ppi_yoy: {
+    title: 'PPI 同比',
+    what: 'PPI 是工厂出厂价的涨幅，反映工业品价格。PPI 上行说明工厂产品卖得上价，周期类行业（钢铁、煤炭、有色）利润往往改善。',
+    when: '做周期股必看：PPI 从负转正、持续上行时，上游资源类公司业绩通常跟着好转；PPI 持续为负说明工业品卖不动。',
+    prompt: '用大白话解释 PPI 是什么？PPI 和 CPI 有什么区别？PPI 上行为什么利好周期股？',
+  },
+  pmi_mfg: {
+    title: '制造业 PMI',
+    what: 'PMI 是每个月对工厂采购经理的问卷调查，50 是荣枯线：高于 50 说明制造业在扩张，低于 50 在收缩。它是每月最早公布的经济数据。',
+    when: '想抢先看经济冷暖就看它：PMI 连续站上 50 并走高，股市通常有支撑；跌破 50 且持续下行要警惕。',
+    prompt: '用大白话解释制造业 PMI 是什么？50 这条荣枯线为什么重要？PMI 和股市走势有什么关系？',
+  },
+  ip_yoy: {
+    title: '工业增加值同比',
+    what: '工业增加值是工厂实际产出的增长（剔除了价格因素），代表实体经济的"产量"热度。',
+    when: '它跟 PMI 互相印证：两个都强说明经济真的在回暖；PMI 强而工业增加值弱，说明回暖可能不扎实。',
+    prompt: '用大白话解释工业增加值同比是什么？它和 PMI 有什么区别？怎么用它判断经济真实热度？',
+  },
+  social_financing: {
+    title: '社融增量',
+    what: '社融是全市场一个月新增的"借钱总量"——企业贷款、发债、政府发债等都算。它代表实体经济从金融体系拿到了多少钱。',
+    when: '社融超预期说明企业和政府愿意加杠杆投资，对股市偏利好；持续低迷说明大家不愿借钱扩张，经济偏冷。单月波动大，看趋势。',
+    prompt: '用大白话解释社会融资规模（社融）是什么？社融超预期或低于预期对股市分别意味着什么？',
+  },
+  lpr_1y: {
+    title: '1年 LPR',
+    what: 'LPR 是银行贷款的基准利率，1 年期主要影响企业短期贷款（房贷利率看 5 年期）。LPR 降 = 借钱变便宜 = 降息。',
+    when: 'LPR 下调利好对利率敏感的板块（地产链）；长期不降甚至收紧时，高估值成长股容易受压。',
+    prompt: '用大白话解释 LPR 是什么？LPR 下调对贷款、存款和股市分别有什么影响？',
+  },
+  shibor_3m: {
+    title: 'Shibor 3个月',
+    what: 'Shibor 是银行之间互相借钱的利率，3 个月期最常用。它是银行间资金松紧的温度计：利率低说明银行不缺钱。',
+    when: 'Shibor 快速上行说明市场缺钱（钱紧），股市容易承压；持续低位说明流动性宽裕，对股市友好。',
+    prompt: '用大白话解释 Shibor 是什么？Shibor 升高或降低分别说明市场资金什么情况，对股市有什么影响？',
+  },
+  cn_gov10y: {
+    title: '中国国债10年收益率',
+    what: '10 年期国债收益率是中国最安全资产的回报率，相当于国内"无风险利率"，是所有资产定价的地基。',
+    when: '收益率下行，债券变贵、股票的相对吸引力上升（尤其高股息股）；快速上行说明资金成本上升，对高估值成长股不利。',
+    prompt: '用大白话解释 10 年期国债收益率为什么被称为无风险利率？它上升或下降对股市分别有什么影响？',
+  },
+  cn_ts10y2y: {
+    title: '中债期限利差（10年-2年）',
+    what: '10 年期和 2 年期国债收益率的差。正常情况下长期利率更高（差为正）；利差收窄甚至倒挂，往往预示经济预期转弱。',
+    when: '利差持续走阔说明市场预期未来增长和通胀回升，偏利好；利差快速收窄要留意经济降温信号。',
+    prompt: '用大白话解释国债期限利差（10年减2年）是什么？利差倒挂为什么被视为经济衰退信号？',
+  },
+  us_gov10y: {
+    title: '美国国债10年收益率',
+    what: '10 年期美债收益率是全球资产定价的"锚"。它走高会吸引全球资金回流美元资产，新兴市场（包括 A 股）容易承压。',
+    when: '美债收益率快速上行时，A 股尤其成长股、外资重仓股容易跌；见顶回落则是全球风险资产松口气的信号。',
+    prompt: '用大白话解释 10 年期美债收益率为什么影响全球股市？它上行为什么对 A 股成长股不利？',
+  },
+  us_ts10y2y: {
+    title: '美债期限利差（10年-2年）',
+    what: '美国 10 年期和 2 年期国债收益率的差。美国历史上多次倒挂（短期利率高于长期）后出现经济衰退，是最受关注的衰退预警指标之一。',
+    when: '倒挂加深说明市场预期美国要衰退或降息，全球股市波动会加大；倒挂解除往往发生在降息周期开启前后。',
+    prompt: '用大白话解释美债利率倒挂是什么？为什么它被认为是美国经济衰退的预警信号？对全球股市有什么影响？',
+  },
+  margin_sh: {
+    title: '沪市两融余额',
+    what: '两融余额是股民向券商借钱买股票（融资）还没还的总金额，这里统计沪市。它代表市场里"杠杆资金"的规模，是情绪的放大器。',
+    when: '两融余额持续攀升说明投资者敢加杠杆、情绪热；快速下降说明在被迫去杠杆，往往伴随下跌。它跟随行情是常态，与指数背离时才值得警惕。',
+    prompt: '用大白话解释两融余额是什么？两融余额上升或下降分别反映市场什么情绪？怎么用它辅助判断行情？',
+  },
+  margin_sz: {
+    title: '深市两融余额',
+    what: '和沪市两融余额一样，是深市股民借钱买股票还没还的总金额。深市成长股、小盘股多，它更能反映激进资金的情绪。',
+    when: '看法和沪市一致：持续攀升是情绪热，快速下降要警惕去杠杆踩踏。两个市场结合起来看全市场杠杆水平。',
+    prompt: '用大白话解释两融余额是什么？深市两融和沪市两融反映的情绪有什么不同？',
+  },
+  fred_VIXCLS: {
+    title: 'VIX 恐慌指数',
+    what: 'VIX 是美股标普 500 期权隐含的预期波动率，俗称恐慌指数。平时 10~20，超过 30 说明市场恐慌，极端时（如 2020 年 3 月）能到 80 以上。',
+    when: 'VIX 飙升说明海外出事了，A 股开盘容易跟跌；VIX 长期低位说明海外风平浪静。做隔夜持仓决策前扫一眼。',
+    prompt: '用大白话解释 VIX 恐慌指数是什么？VIX 飙升对 A 股有什么影响？',
+  },
+  fred_WALCL: {
+    title: '美联储总资产',
+    what: '美联储总资产是它"印了多少钱"的直接体现：扩表（上升）= 向市场投放美元，缩表（下降）= 回收美元。',
+    when: '扩表期全球流动性宽松，股票等风险资产普遍受益；缩表期资金回流美国，A 股的外资流入会变弱。',
+    prompt: '用大白话解释美联储扩表和缩表是什么？它们对全球股市和 A 股分别有什么影响？',
+  },
+  fred_RRPONTSYD: {
+    title: '隔夜逆回购用量',
+    what: '美国货币基金等机构把闲钱隔夜存回美联储的规模。用量大说明美元体系里"闲钱"多但暂时不愿进市场，相当于流动性的蓄水池。',
+    when: '用量持续下降说明蓄水池在放水（资金流向市场），边际利好风险资产；异常飙升说明资金避险情绪浓。这个指标偏专业，了解即可。',
+    prompt: '用大白话解释美联储隔夜逆回购（ON RRP）是什么？它的用量变化对美元流动性意味着什么？',
+  },
+  fred_DTWEXBGS: {
+    title: '美元广义指数',
+    what: '美元对一篮子主要货币的综合汇率指数，衡量美元整体强不强。美元走强，人民币相对承压，外资流入 A 股会变慢。',
+    when: '美元指数快速上行期，A 股（尤其外资重仓股）和人民币汇率通常承压；美元走弱期，新兴市场资产普遍受益。',
+    prompt: '用大白话解释美元指数是什么？美元走强或走弱对人民币和 A 股分别有什么影响？',
+  },
+  fred_DFF: {
+    title: '联邦基金利率',
+    what: '美国的基准利率，美联储加息降息说的就是它。它决定全球美元的"价格"，是所有海外资产的总开关。',
+    when: '加息周期全球资金回流美国，A 股承压；降息周期资金外溢，新兴市场受益。它变化不频繁，但每次变化都是大事。',
+    prompt: '用大白话解释联邦基金利率是什么？美联储加息和降息分别如何传导到 A 股？',
+  },
+  qvix_300: {
+    title: 'QVIX 沪深300',
+    what: 'QVIX 是从沪深300 相关期权价格反推出的市场预期波动率，相当于 A 股版的"恐慌指数"。数值越高，说明市场预期未来波动越大。',
+    when: 'QVIX 突然飙升说明期权玩家在买保护、预期大跌，短线要谨慎；长期低位说明市场自满，反而要留意变盘。',
+    prompt: '用大白话解释 QVIX（中国波指）是什么？它和美股 VIX 有什么区别？怎么用它判断 A 股短期风险？',
+  },
+  qvix_1000: {
+    title: 'QVIX 中证1000',
+    what: '从中证1000 相关期权反推的预期波动率，反映中小盘股的恐慌程度。用法和 QVIX300 一样，只是标的偏向小盘股。',
+    when: '做小盘、题材股时看它更准：QVIX1000 飙升说明小盘股波动加剧，追高要慎重。',
+    prompt: '用大白话解释中证1000 的 QVIX 是什么？为什么做中小盘股票要关注它？',
+  },
+  // ---------- 估值历史下拉指标 ----------
+  pe_static: {
+    title: '市盈率（静）',
+    what: '静态市盈率 = 现在的股价 ÷ 上一年度的每股收益。它用的是"已经翻篇"的旧业绩，不像 TTM（滚动四个季度）那样贴近最新情况。',
+    when: '年报刚发布时它和 TTM 差不多；年中看它会偏旧。两个 PE 差距大，说明公司最近业绩变化大。',
+    prompt: '用大白话解释静态市盈率和 TTM 市盈率有什么区别？看估值时该用哪个？',
+  },
+  ps_ttm: {
+    title: '市销率（PS）',
+    what: '市销率 = 总市值 ÷ 一年的营业收入。它不看利润只看收入，适合还没盈利或利润波动大的公司（成长期公司、周期低谷的公司）。',
+    when: '公司亏损、PE 算不出来时用 PS 兜底比较；但收入高不等于赚钱，PS 要和毛利率、净利率一起看。',
+    prompt: '用大白话解释市销率（PS）是什么？什么样的公司适合用 PS 估值？只用 PS 估值有什么坑？',
+  },
+  pcf_ocf_ttm: {
+    title: '市现率（PCF）',
+    what: '市现率 = 总市值 ÷ 一年的经营现金流。利润可以被会计手法调节，现金流很难造假，所以它比 PE 更"实"。',
+    when: '怀疑一家公司利润有水分时用它验证：PE 低但市现率很高，说明账面利润没变成真金白银，要小心。',
+    prompt: '用大白话解释市现率（PCF）是什么？为什么说现金流比利润更难造假？怎么用市现率验证利润质量？',
+  },
+  peg: {
+    title: 'PEG',
+    what: 'PEG = 市盈率 ÷ 盈利增速（%）。PE 30 倍但增速 30%，PEG=1，说明贵得有道理；PE 低但增速为负，PEG 反而难看。一般 PEG 小于 1 算相对便宜。',
+    when: '看成长股时比单看 PE 更公平。注意：它高度依赖对未来增速的估计，增速预测错了 PEG 就没意义。',
+    prompt: '用大白话解释 PEG 估值法是什么？PEG 小于 1 就一定能买吗？用 PEG 估值要注意什么？',
+  },
+  div_yield: {
+    title: '股息率 TTM',
+    what: '股息率 = 最近一年每股分红 ÷ 现在的股价。股价 10 元、一年分红 0.5 元，股息率就是 5%，相当于买这只股票的"利息"。',
+    when: '熊市里高股息股（银行、煤炭等）抗跌性往往更好，因为有分红托底；但要看分红能不能持续，业绩下滑的公司分红可能缩水。',
+    prompt: '用大白话解释股息率是什么？高股息股票有什么优缺点？什么是"股息率陷阱"？',
+  },
+  // ---------- 其他小项 ----------
+  sync: {
+    title: '数据同步时间',
+    what: '这个网站的数据更新节奏：日线行情每个交易日 15:45 收盘后更新；盘中快照每 5 分钟抓一次；信号每小时扫一轮。',
+    when: '收盘前看到的日线还是昨天的，别拿它当今天的结果；盘中看实时涨跌以快照为准。',
+    prompt: '股票软件里的日线数据为什么通常收盘后才更新？盘中数据和收盘数据有什么区别？',
+  },
+  industry_sw: {
+    title: '行业指数（申万一级）',
+    what: '这里列的是申万一级行业指数，共 31 个，覆盖 A 股全部行业分类。每个指数代表一个行业所有股票打包后的整体表现，比如"银行"指数就是所有银行股的综合走势。',
+    when: '想判断市场热点在哪个行业、手里的股票是跟着行业走还是独自异动，就来这里对照。行业涨而个股跌，说明是个股自己的问题。',
+    prompt: '用大白话解释申万一级行业分类是什么？怎么通过行业指数判断市场热点轮动？',
   },
   newbie: {
     title: '新手入门：一张K线图怎么看',

@@ -14,18 +14,37 @@ body {
 .tab.active { color: #d8dce3; font-weight: 600; border-bottom: 2px solid #4d8fd1; }
 
 .card {
-  display: grid; grid-template-columns: 1fr 80px 80px;
+  display: grid; grid-template-columns: 1fr 74px 88px;
   align-items: center; padding: 12px 14px; margin-bottom: 8px;
   background: #1b1f26; border: 1px solid #262c36; border-radius: 10px; cursor: pointer;
+  transition: background-color .15s ease;
 }
 .card:active { background: #222834; }
 .name { font-size: 15px; font-weight: 500; }
 .sub { font-size: 12px; color: #8a8f98; margin-top: 2px; }
 .num { text-align: right; font-variant-numeric: tabular-nums; font-size: 15px; }
+.num.price { font-weight: 600; }
+.num.price.up { color: #e05555; }
+.num.price.down { color: #3fbf7f; }
+.pct-pill {
+  display: inline-block; min-width: 72px; text-align: center;
+  padding: 4px 6px; border-radius: 6px; font-size: 13px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pct-pill.up { background: #d84a4a; color: #fff; }
+.pct-pill.down { background: #2f9e6b; color: #fff; }
+.pct-pill.flat { background: #262c36; color: #8a8f98; }
+.q-price .pct-pill { font-size: 14px; min-width: 0; padding: 3px 10px; vertical-align: middle; }
+@media (hover: hover) {
+  .card:hover, .sig:hover { background: #20252e; }
+  .mcard:hover { background: #222834; }
+}
 .empty { color: #8a8f98; text-align: center; padding: 40px 0; font-size: 14px; }
 
-.sig { padding: 12px 14px; margin-bottom: 8px; background: #1b1f26; border: 1px solid #262c36; border-radius: 10px; cursor: pointer; }
+.sig { padding: 12px 14px 12px 16px; margin-bottom: 8px; background: #1b1f26; border: 1px solid #262c36; border-radius: 10px; cursor: pointer; }
 .sig:active { background: #222834; }
+.sig.daily { border-left: 3px solid #e05555; }
+.sig.rt { border-left: 3px solid #4d8fd1; }
 .sig-meta { font-size: 12px; color: #8a8f98; margin-bottom: 5px; }
 .sig-msg { font-size: 14px; line-height: 1.5; }
 
@@ -147,13 +166,49 @@ body {
   padding: 10px 12px; cursor: pointer;
 }
 .mcard:active { background: #222834; }
-.mname { font-size: 13px; color: #8a8f98; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mname { font-size: 13px; color: #8a8f98; margin-bottom: 4px; display: flex; align-items: center; gap: 2px; }
+.mname-txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mname .help-ico { font-size: 11px; flex-shrink: 0; }
 .mval { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; }
 .munit { font-size: 11px; color: #8a8f98; font-weight: 400; margin-left: 3px; }
 .mrow { display: flex; justify-content: space-between; align-items: center; margin-top: 3px; }
 .mchg { font-size: 12px; font-variant-numeric: tabular-nums; }
 .mdate { font-size: 11px; color: #5a6270; }
 .mspark { height: 46px; margin-top: 4px; }
+
+/* ---------- 大盘温度（自选页顶部） ---------- */
+.market-temp {
+  background: #1b1f26; border: 1px solid #262c36; border-radius: 10px;
+  padding: 10px 14px 12px; margin-bottom: 10px; cursor: pointer;
+}
+.market-temp:active { background: #222834; }
+.mt-head { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #d8dce3; margin-bottom: 10px; }
+.mt-title { font-weight: 600; }
+.mt-verdict { font-size: 11px; line-height: 1; padding: 3px 8px; border-radius: 10px; }
+.mt-verdict.warm { color: #ff7a7a; background: rgba(224,85,85,.16); }
+.mt-verdict.neutral { color: #9aa0aa; background: rgba(138,143,152,.14); }
+.mt-verdict.cold { color: #4cd69b; background: rgba(63,191,127,.14); }
+.mt-date { margin-left: auto; font-size: 11px; color: #5a6270; }
+.mt-bar-wrap { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.mt-side { font-size: 12px; color: #8a8f98; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mt-side b { font-size: 14px; font-weight: 600; }
+.mt-side.up b { color: #e05555; }
+.mt-side.down b { color: #3fbf7f; }
+.mt-bar { flex: 1; height: 8px; border-radius: 4px; background: #2f8f5f; display: flex; overflow: hidden; }
+.mt-bar i { display: block; height: 100%; background: #e05555; border-radius: 4px 0 0 4px; }
+.mt-stats { display: flex; justify-content: space-between; font-size: 12px; color: #8a8f98; }
+.mt-stats b { font-weight: 600; color: #d8dce3; font-variant-numeric: tabular-nums; margin-left: 3px; }
+.mt-stats b.up { color: #e05555; }
+.mt-stats b.down { color: #3fbf7f; }
+
+/* ---------- 详情页：估值历史 / 主力资金流 ---------- */
+#val-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+#val-metric {
+  background: #1b1f26; color: #d8dce3; border: 1px solid #262c36;
+  border-radius: 8px; padding: 5px 8px; font-size: 12px;
+}
+#val-stat { font-size: 12px; color: #8a8f98; }
+#val-chart, #flow-chart { width: 100%; background: #1b1f26; border: 1px solid #262c36; border-radius: 10px; }
 
 #macro-detail {
   position: fixed; inset: 0; background: #14171c; z-index: 55;

@@ -7,6 +7,7 @@
 """
 import csv
 import math
+import re
 import sys
 import time
 from pathlib import Path
@@ -19,6 +20,8 @@ sys.path.insert(0, str(HERE))
 from sync_data import push, load_cfg  # noqa: E402
 
 D = ROOT / "data" / "downloads"
+if not (D / "macro").is_dir():  # 仓库内无数据时用本机资产布局（/home/ubuntu/data/downloads）
+    D = Path("/home/ubuntu/data/downloads")
 HIST_YEARS = 10   # 每个指标保留近 10 年序列
 MAX_POINTS = 500  # 单序列最大点数（超出均匀抽稀，控制 ingest 请求体在 413 限制内）
 
@@ -52,6 +55,17 @@ def series(rows, date_col, val_col, skip_zero=False, max_points=MAX_POINTS):
     return out
 
 
+def em_month_rows(rows, col="month"):
+    """东财经济报表月份列归一为 'YYYY-MM'（兼容 '2026-07-01 00:00:00' 与 '2026年07月份'）。"""
+    out = []
+    for r in rows:
+        m = re.search(r"(\d{4})[-年](\d{1,2})", str(r.get(col) or ""))
+        if m:
+            r = dict(r, **{col: f"{m.group(1)}-{int(m.group(2)):02d}"})
+        out.append(r)
+    return out
+
+
 def build_indicators():
     inds = {}
 
@@ -71,17 +85,17 @@ def build_indicators():
     add("m2_yoy", "M2 同比", "%", ms, "月份", "货币和准货币(M2)-同比增长")
     add("m1_yoy", "M1 同比", "%", ms, "月份", "货币(M1)-同比增长")
 
-    # ---- 通胀 ----
-    cpi = read_csv(D / "macro" / "cpi_monthly.csv")
-    add("cpi_yoy", "CPI 同比", "%", cpi, "日期", "今值")
-    ppi = read_csv(D / "macro" / "ppi_yoy.csv")
-    add("ppi_yoy", "PPI 同比", "%", ppi, "月份", "当月同比增长")
+    # ---- 通胀（东财官方口径 cpi_em/ppi_em，月更；金十源 cpi_monthly 停更勿用）----
+    cpi = em_month_rows(read_csv(D / "macro" / "cpi_em.csv"))
+    add("cpi_yoy", "CPI 同比", "%", cpi, "month", "national_yoy")
+    ppi = em_month_rows(read_csv(D / "macro" / "ppi_em.csv"))
+    add("ppi_yoy", "PPI 同比", "%", ppi, "month", "yoy")
 
     # ---- 增长 ----
     pmi = read_csv(D / "macro" / "pmi.csv")
     add("pmi_mfg", "制造业 PMI", "", pmi, "月份", "制造业-指数")
-    ip = read_csv(D / "macro" / "industrial_production_yoy.csv")
-    add("ip_yoy", "工业增加值同比", "%", ip, "日期", "今值")
+    ip = em_month_rows(read_csv(D / "macro" / "ip_em.csv"))
+    add("ip_yoy", "工业增加值同比", "%", ip, "month", "yoy")
 
     # ---- 信用 ----
     sf = read_csv(D / "macro" / "social_financing.csv")
@@ -105,6 +119,9 @@ def build_indicators():
     add("margin_sz", "深市两融余额", "亿元", mg2, "日期", "融资融券余额", skip_zero=True, transform=lambda v: v / 1e8)
 
     # ---- 海外（FRED，MOVE 无源已剔除）----
+    FRED = ROOT / "data" / "fred"
+    if not FRED.is_dir():  # 本机资产布局在 /home/ubuntu/data/fred
+        FRED = Path("/home/ubuntu/data/fred")
     for sid, name, unit, transform in [
         ("VIXCLS", "VIX 恐慌指数", "", None),
         ("WALCL", "美联储总资产", "万亿美元", lambda v: v / 1e6),   # 原始百万美元 → 万亿美元
@@ -112,7 +129,7 @@ def build_indicators():
         ("DTWEXBGS", "美元广义指数", "", None),
         ("DFF", "联邦基金利率", "%", None),
     ]:
-        f = D / "fred" / f"{sid}.csv"
+        f = FRED / f"{sid}.csv"
         if f.exists():
             rows = read_csv(f)
             # fredgraph.csv: 列1=日期, 列2=序列
