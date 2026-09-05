@@ -12,8 +12,8 @@
 回放信号推送到云端 signals 集合，带 hist=1 标志、rule 加 "_hist" 后缀，与实时信号区分。
 
 用法:
-  python3 backfill_signals.py            # 回放并推送
-  python3 backfill_signals.py --dry      # 只算不推，打印统计
+  python3 legacy/cloudbase/backfill_signals.py            # 回放并推送
+  python3 legacy/cloudbase/backfill_signals.py --dry      # 只算不推，打印统计
 """
 from __future__ import annotations
 
@@ -27,11 +27,12 @@ from pathlib import Path
 
 import requests
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE / "src"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "jobs"))
 
-from quotes import to_market_code  # noqa: E402
-from sync_cloud import web_stocks  # noqa: E402
+from monitor.quotes import to_market_code  # noqa: E402
+from sync_data import web_stocks  # noqa: E402
 
 API = "https://ljx-d1gjpcu23fa094e67.service.tcloudbase.com/api"
 DAILY_DAYS = 365          # 日线级回放最近 1 年
